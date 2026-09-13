@@ -29,8 +29,10 @@ benchmark-results/
 /crates/diagram-core/scripts/compare-performance*.mjs
 /fixtures/benchmarks/
 
-# Documentation stays local
+# Documentation stays local except public project guidance
 /docs/
 *.md
 *.mdx
 *.rst
+!/README.md
+!/AGENTS.md
