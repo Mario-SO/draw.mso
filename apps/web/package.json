@@ -1,6 +1,35 @@
 {
-  "name":"@draw/web","version":"0.1.0","private":true,"type":"module",
-  "scripts":{"dev":"vite --host 127.0.0.1","build":"vite build","check":"tsc --noEmit","lint":"tsc --noEmit","test:e2e":"playwright test"},
-  "dependencies":{"@draw/editor":"workspace:*","@draw/ui":"workspace:*","react":"^19.2.0","react-dom":"^19.2.0","lucide-react":"^0.577.0","@fontsource-variable/geist":"^5.2.0","@fontsource/geist-mono":"^5.2.0"},
-  "devDependencies":{"@draw/typescript-config":"workspace:*","@types/react":"^19.2.0","@types/react-dom":"^19.2.0","@types/node":"^24.0.0","typescript":"^5.9.3","vite":"^7.3.0","@vitejs/plugin-react":"^5.1.0","@tailwindcss/vite":"^4.2.0","tailwindcss":"^4.2.0","@playwright/test":"^1.58.0"}
+  "name": "@draw/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "check": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@draw/editor": "workspace:*",
+    "@draw/ui": "workspace:*",
+    "@fontsource-variable/geist": "^5.2.0",
+    "@fontsource/geist-mono": "^5.2.0",
+    "@vercel/analytics": "^2.0.1",
+    "lucide-react": "^0.577.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@draw/typescript-config": "workspace:*",
+    "@playwright/test": "^1.58.0",
+    "@tailwindcss/vite": "^4.2.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.1.0",
+    "tailwindcss": "^4.2.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.0"
+  }
 }
