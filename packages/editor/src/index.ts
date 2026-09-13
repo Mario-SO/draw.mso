@@ -1,4 +1,4 @@
-import { decodeEngineResult } from './worker-protocol';
+import { SceneStreamDecoder } from './worker-protocol';
 import { CanvasRenderer, SpatialIndex, CELL_WIDTH, CELL_HEIGHT, type DiagramNode, type DiagramDocument, type DiagramEdge, type Scene, type ConnectionSide } from '@draw/renderer';
 import { sampleDocument } from './sample';
 import { diffDocument } from './document-patch';
@@ -60,6 +60,8 @@ export class Editor {
   private documentOperations = 0;
   private requests = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void; startedAt: number; type: EngineOperation }>();
   private requestId = 0;
+  private sceneDecoder = new SceneStreamDecoder();
+  private sceneRecovery: Promise<void> | undefined;
   private document: DiagramDocument = clone(sampleDocument);
   private scene: Scene | null = null;
   private tool: Tool = 'select';
@@ -133,13 +135,21 @@ export class Editor {
       } else {
         try {
           const parseAt = benchmarkEnabled() ? performance.now() : 0;
-          const result = typeof data.result === 'object' && data.result !== null ? decodeEngineResult(data.result) : data.result;
+          const result = typeof data.result === 'object' && data.result !== null ? this.sceneDecoder.decode(data.result) : data.result;
+          if (typeof data.result === 'object' && data.result?.sceneUpdateJson !== undefined && this.sceneDecoder.lastUpdate) {
+            const update = this.sceneDecoder.lastUpdate;
+            recordPerformance({ name: 'editor.sceneRowsReceived', value: update.rows, unit: 'count', detail: { command: pending.type, kind: update.kind } });
+            recordPerformance({ name: 'editor.sceneRoutesReceived', value: update.routes, unit: 'count', detail: { command: pending.type, kind: update.kind } });
+          }
           recordPerformance({ name: 'editor.engineOutputParse', value: performance.now() - parseAt, unit: 'ms', detail: { command: pending.type } });
           // Include decoding in the round trip so results stay comparable to the
           // previous worker-parsed transport rather than hiding work on main.
           recordPerformance({ name: 'editor.workerRoundTrip', value: performance.now() - pending.startedAt, unit: 'ms', detail: { command: pending.type } });
           pending.resolve(result);
-        } catch (error) { pending.reject(error instanceof Error ? error : new Error(String(error))); }
+        } catch (error) {
+          pending.reject(error instanceof Error ? error : new Error(String(error)));
+          if (pending.type !== 'resync' && typeof data.result === 'object' && data.result?.sceneUpdateJson !== undefined) this.recoverScene();
+        }
       }
     };
     this.worker.onerror = () => {
@@ -214,8 +224,17 @@ export class Editor {
         recordPerformance({ name: 'editor.requestJsonBytes', value: encoded.byteLength, unit: 'bytes', detail: { command: type } });
       }
       this.requests.set(id, { resolve: resolve as (value: unknown) => void, reject, startedAt: performance.now(), type });
-      this.worker.postMessage({ id, type, payload, benchmark: benchmarkEnabled(), responseByteAccounting: responseByteAccountingEnabled() });
+      this.worker.postMessage({ id, type, payload, benchmark: benchmarkEnabled(), responseByteAccounting: responseByteAccountingEnabled(), sceneGeneration: this.sceneDecoder.generation });
     });
+  }
+  private recoverScene(): void {
+    if (this.sceneRecovery || this.disposed) return;
+    // A rejected delta resets the decoder. Request a serialized full snapshot
+    // without changing accepted state or adding a history entry.
+    this.sceneRecovery = this.request<EngineResult>('resync')
+      .then(result => { if (!this.disposed) this.accept(result); })
+      .catch(error => this.fail(error))
+      .finally(() => { this.sceneRecovery = undefined; });
   }
   private accept(result: EngineResult) {
     this.document = result.document; this.scene = result.scene;
@@ -728,6 +747,7 @@ export class Editor {
       this.previewTimer = undefined;
       const drag = this.drag; if (!drag || (drag.mode !== 'move' && drag.mode !== 'resize') || this.previewBusy) return;
       const revision = this.previewRevision;
+      const acceptedDocument = this.document;
       const changed = new Map<string, DiagramNode>();
       if (drag.mode === 'move') {
         for (const node of drag.nodes) changed.set(node.id, { ...node, x: node.x + drag.dx, y: node.y + drag.dy });
@@ -740,7 +760,7 @@ export class Editor {
       this.previewBusy = true;
       try {
         const result = await this.request<Pick<EngineResult, 'scene'>>('previewPatch', { updatedNodes: [...changed.values()] });
-        if (this.drag === drag && this.previewRevision === revision) {
+        if (this.drag === drag && this.previewRevision === revision && this.document === acceptedDocument) {
           // Keep the pointer preview for the whole gesture. Clearing it here
           // alternates the plain preview and selected scene on every worker reply.
           this.renderer.setScene(result.scene, doc);
@@ -898,7 +918,7 @@ export class Editor {
   destroy() {
     if (this.initialized) { clearTimeout(this.saveTimer); if (this.status === 'Saving…' && this.activeDocumentId) this.persist(this.activeDocumentId, clone(this.document)); }
     void this.saveQueue.finally(() => this.localDocuments.close());
-    this.disposed = true; clearTimeout(this.previewTimer); this.abort.abort(); this.observer.disconnect(); this.renderer.destroy(); this.worker.terminate();
+    this.disposed = true; clearTimeout(this.previewTimer); this.abort.abort(); this.observer.disconnect(); this.sceneDecoder.reset(); this.renderer.destroy(); this.worker.terminate();
     const target = window as Window & { __DRAW_BENCHMARK_API__?: BenchmarkApi };
     if (target.__DRAW_BENCHMARK_API__ === this.benchmarkApi) delete target.__DRAW_BENCHMARK_API__;
     for (const pending of this.requests.values()) pending.reject(new Error('Editor closed'));

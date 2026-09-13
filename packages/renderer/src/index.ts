@@ -11,7 +11,9 @@ export interface GridPoint {
 }
 
 export interface Scene {
-  displayCells: DisplayCell[];
+  displayCells?: DisplayCell[];
+  /** Incremental snapshots share unchanged, sorted rows. */
+  displayRows?: ReadonlyMap<number, readonly DisplayCell[]>;
   /** Full terminal composition is optional because Canvas only uses displayCells. */
   cells?: Array<{ x: number; y: number; ch: string }>;
   bounds: { x: number; y: number; width: number; height: number };
@@ -78,6 +80,7 @@ export class CanvasRenderer {
   private edgesById = new Map<string, DiagramEdge>();
   private routeBounds: Array<{ left: number; top: number; right: number; bottom: number }> = [];
   private previewIds = new Set<string>();
+  private routeBoundsCache = new WeakMap<Scene['routes'][number], { left: number; top: number; right: number; bottom: number }>();
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const context = canvas.getContext("2d");
@@ -101,20 +104,28 @@ export class CanvasRenderer {
   }
 
   setScene(scene: Scene, doc: DiagramDocument): void {
+    const benchmarking = Boolean((globalThis as typeof globalThis & { __DRAW_BENCHMARK_ENABLED__?: boolean }).__DRAW_BENCHMARK_ENABLED__);
+    const startedAt = benchmarking ? performance.now() : 0;
     if (this.scene === scene && this.document === doc) { this.scheduleRender(); return; }
     this.scene = scene;
     this.document = doc;
-    this.displayCellIndex.update(scene.displayCells);
+    if (scene.displayRows) this.displayCellIndex.updateRows(scene.displayRows);
+    else this.displayCellIndex.update(scene.displayCells ?? []);
     this.nodeBorders = new Map(doc.nodes.map(node => [node.id, node.border ?? (node.kind === 'database' ? 'double' : 'single')]));
     this.edgesById = new Map(doc.edges.map(edge => [edge.id, edge]));
     this.routeBounds = scene.routes.map(route => {
+      const cached = this.routeBoundsCache.get(route);
+      if (cached) return cached;
       let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
       for (const point of route.points) {
         left = Math.min(left, point.x); top = Math.min(top, point.y);
         right = Math.max(right, point.x); bottom = Math.max(bottom, point.y);
       }
-      return { left, top, right, bottom };
+      const bounds = { left, top, right, bottom };
+      this.routeBoundsCache.set(route, bounds);
+      return bounds;
     });
+    if (benchmarking) this.recordPerformance('renderer.sceneUpdate', performance.now() - startedAt, 'ms');
     this.scheduleRender();
   }
 

@@ -3,10 +3,12 @@ import init, { Engine } from '@draw/engine-wasm';
 import wasmUrl from '@draw/engine-wasm/wasm?url';
 import type { EngineWorkerRequest, EngineWireResult, WorkerPerformanceSample } from './worker-protocol';
 let engine: Engine | undefined;
+// Projection sequence spans previews and accepted responses, not document history.
+let sceneGeneration = 0;
 const initialized = init({ module_or_path: wasmUrl });
 let queue = Promise.resolve();
 self.onmessage = (event: MessageEvent<EngineWorkerRequest>) => {
-  const { id, type, payload, benchmark, responseByteAccounting } = event.data;
+  const { id, type, payload, benchmark, responseByteAccounting, sceneGeneration: decodedGeneration } = event.data;
   const receivedAt = benchmark ? performance.now() : 0;
   queue = queue.then(async () => {
     const samples: WorkerPerformanceSample[] = [];
@@ -20,6 +22,11 @@ self.onmessage = (event: MessageEvent<EngineWorkerRequest>) => {
       sample('worker.inputJsonEncode', now() - start);
       return json;
     };
+    const sceneResult = (sceneUpdateJson: string): EngineWireResult => ({
+      sceneUpdateJson,
+      sceneBaseGeneration: sceneGeneration,
+      sceneGeneration: ++sceneGeneration,
+    });
     const respond = (result: EngineWireResult | string, operationAt: number) => {
       sample('worker.operation', now() - operationAt);
       if (benchmark && responseByteAccounting !== false) {
@@ -54,9 +61,9 @@ self.onmessage = (event: MessageEvent<EngineWorkerRequest>) => {
       if (type === 'previewPatch') {
         const input = encode();
         const outputAt = now();
-        const sceneJson = engine.previewPatch(input);
+        const sceneUpdateJson = engine.previewPatchUpdate(input, decodedGeneration !== sceneGeneration);
         sample('worker.engineOutput', now() - outputAt);
-        respond({ sceneJson }, operationAt);
+        respond(sceneResult(sceneUpdateJson), operationAt);
         return;
       }
       if (type === 'replace') engine.replace(encode());
@@ -67,7 +74,7 @@ self.onmessage = (event: MessageEvent<EngineWorkerRequest>) => {
         respond(payload === 'svg' ? engine.export_svg() : engine.export_text(payload === 'ascii'), operationAt);
       } else {
         const outputAt = now();
-        const result = { documentJson: engine.document(), sceneJson: engine.displayScene(), canUndo: engine.can_undo(), canRedo: engine.can_redo() };
+        const result = { documentJson: engine.document(), ...sceneResult(engine.displayUpdate(type === 'init' || type === 'resync' || decodedGeneration !== sceneGeneration)), canUndo: engine.can_undo(), canRedo: engine.can_redo() };
         sample('worker.engineOutput', now() - outputAt);
         respond(result, operationAt);
       }

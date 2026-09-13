@@ -1,1 +1,1 @@
-{"extends":"@draw/typescript-config/base.json","compilerOptions":{"types":["vite/client","node"],"baseUrl":".","paths":{"@/*":["./src/*"]}},"include":["src","performance","vite.config.ts","playwright.config.ts","playwright.performance.config.ts"]}
+{"extends":"@draw/typescript-config/base.json","compilerOptions":{"types":["vite/client","node"],"baseUrl":".","paths":{"@/*":["./src/*"]}},"include":["src","vite.config.ts","playwright.config.ts"]}

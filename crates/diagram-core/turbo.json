@@ -76,32 +76,10 @@
         "$TURBO_ROOT$/schemas/document-v3.schema.json",
         "$TURBO_ROOT$/schemas/document-patch-v3.schema.json",
         "$TURBO_ROOT$/schemas/document-v2.schema.json",
-        "$TURBO_ROOT$/schemas/document-patch-v2.schema.json",
-        "$TURBO_ROOT$/fixtures/benchmarks/*.mso"
+        "$TURBO_ROOT$/schemas/document-patch-v2.schema.json"
       ],
       "dependsOn": [
-        "^build",
-        "test:bench"
-      ]
-    },
-    "bench:native": {
-      "cache": false,
-      "env": [
-        "RUSTUP_TOOLCHAIN",
-        "RUSTFLAGS"
-      ],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/Cargo.toml",
-        "$TURBO_ROOT$/Cargo.lock",
-        "$TURBO_ROOT$/rust-toolchain.toml",
-        "$TURBO_ROOT$/schemas/document-v1.schema.json",
-        "$TURBO_ROOT$/schemas/document-patch-v1.schema.json",
-        "$TURBO_ROOT$/schemas/document-v3.schema.json",
-        "$TURBO_ROOT$/schemas/document-patch-v3.schema.json",
-        "$TURBO_ROOT$/schemas/document-v2.schema.json",
-        "$TURBO_ROOT$/schemas/document-patch-v2.schema.json",
-        "$TURBO_ROOT$/fixtures/benchmarks/**"
+        "^build"
       ]
     }
   }

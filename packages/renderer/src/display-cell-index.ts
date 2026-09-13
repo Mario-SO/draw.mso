@@ -6,16 +6,22 @@ export interface DisplayCell {
 
 /** Sparse row index used to visit only cells intersecting the viewport. */
 export class DisplayCellIndex {
-  private rows = new Map<number, DisplayCell[]>();
+  private rows: ReadonlyMap<number, readonly DisplayCell[]> = new Map();
 
   update(cells: readonly DisplayCell[]): void {
-    this.rows.clear();
+    const rows = new Map<number, DisplayCell[]>();
     for (const cell of cells) {
-      let row = this.rows.get(cell.y);
-      if (!row) this.rows.set(cell.y, row = []);
+      let row = rows.get(cell.y);
+      if (!row) rows.set(cell.y, row = []);
       row.push(cell);
     }
-    for (const row of this.rows.values()) row.sort((a, b) => a.x - b.x);
+    for (const row of rows.values()) row.sort((a, b) => a.x - b.x);
+    this.rows = rows;
+  }
+
+  /** Rows are immutable snapshots already sorted by the Rust compositor. */
+  updateRows(rows: ReadonlyMap<number, readonly DisplayCell[]>): void {
+    this.rows = rows;
   }
 
   forEach(left: number, top: number, right: number, bottom: number, visit: (cell: DisplayCell) => void): void {

@@ -8,10 +8,7 @@
     "check": "turbo run check",
     "test": "turbo run test",
     "lint": "turbo run lint",
-    "test:e2e": "turbo run test:e2e",
-    "bench:native": "turbo run bench:native",
-    "bench:browser": "turbo run bench:browser",
-    "bench:compare": "turbo run bench:compare"
+    "test:e2e": "turbo run test:e2e"
   },
   "devDependencies": {
     "turbo": "^2.8.0"

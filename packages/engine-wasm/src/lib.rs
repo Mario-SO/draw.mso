@@ -43,9 +43,19 @@ impl Engine {
     pub fn display_scene(&self) -> String {
         self.inner.display_scene_json()
     }
+    #[wasm_bindgen(js_name = displayUpdate)]
+    pub fn display_update(&self, force_full: bool) -> String {
+        self.inner.display_update_json(force_full)
+    }
     #[wasm_bindgen(js_name = previewPatch)]
     pub fn preview_patch(&self, json: &str) -> Result<String, JsValue> {
         self.inner.preview_patch_json(json).map_err(js_error)
+    }
+    #[wasm_bindgen(js_name = previewPatchUpdate)]
+    pub fn preview_patch_update(&self, json: &str, force_full: bool) -> Result<String, JsValue> {
+        self.inner
+            .preview_patch_update_json(json, force_full)
+            .map_err(js_error)
     }
     pub fn export_text(&self, ascii: bool) -> Result<String, JsValue> {
         self.inner.export_text(ascii).map_err(js_error)

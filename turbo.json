@@ -39,30 +39,6 @@
         "build"
       ],
       "cache": false
-    },
-    "bench:native": {
-      "cache": false
-    },
-    "bench:browser": {
-      "dependsOn": [
-        "build"
-      ],
-      "cache": false,
-      "env": [
-        "DRAW_BENCH_FIXTURE",
-        "DRAW_BENCH_GESTURES",
-        "DRAW_BENCH_RESPONSE_BYTES",
-        "DRAW_BENCH_SCENARIOS",
-        "DRAW_BENCH_WARMUPS",
-        "DRAW_BENCH_SAMPLES",
-        "DRAW_BENCH_TRACE"
-      ]
-    },
-    "bench:compare": {
-      "cache": false
-    },
-    "test:bench": {
-      "outputs": []
     }
   }
 }

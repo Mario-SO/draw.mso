@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -19,6 +19,10 @@ const MAX_EXPORT_AREA: i64 = 4_000_000;
 const MAX_HISTORY: usize = 100;
 const MAX_ROUTING_OBSTACLES: usize = 64;
 const MAX_ROUTING_LANES: usize = 16;
+const MAX_INCREMENTAL_DIRTY_ROWS: usize = 1_024;
+const MAX_RETAINED_DISPLAY_CELLS: usize = 250_000;
+const MAX_RETAINED_ROUTE_POINTS: usize = 250_000;
+const MAX_RETAINED_DISPLAY_ITEMS: usize = 500_000;
 
 pub const DOCUMENT_VERSION: u32 = 3;
 pub const DOCUMENT_SCHEMA_JSON: &str = include_str!("../../../schemas/document-v3.schema.json");
@@ -238,6 +242,32 @@ pub struct DisplayScene<'a> {
     pub display_cells: &'a [Cell],
     pub bounds: &'a Bounds,
     pub routes: &'a [Route],
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DisplayRow {
+    pub y: i32,
+    pub cells: Vec<Cell>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum DisplayUpdate {
+    Full {
+        rows: Vec<DisplayRow>,
+        routes: Vec<Route>,
+        bounds: Bounds,
+    },
+    Delta {
+        rows: Vec<DisplayRow>,
+        routes: Vec<Route>,
+        #[serde(rename = "removedRouteIds")]
+        removed_route_ids: Vec<String>,
+        #[serde(rename = "routeOrder", skip_serializing_if = "Option::is_none")]
+        route_order: Option<Vec<String>>,
+        bounds: Bounds,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -754,6 +784,15 @@ pub struct Engine {
     undo: Vec<Document>,
     redo: Vec<Document>,
     route_cache: RefCell<HashMap<String, RouteCacheEntry>>,
+    display_cache: RefCell<Option<DisplayCache>>,
+}
+
+#[derive(Debug, Clone)]
+struct DisplayCache {
+    document: Document,
+    rows: BTreeMap<i32, Vec<Cell>>,
+    label_rows: BTreeMap<i32, Vec<Cell>>,
+    routes: Vec<Route>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -838,6 +877,7 @@ impl Engine {
             undo: vec![],
             redo: vec![],
             route_cache: RefCell::new(HashMap::new()),
+            display_cache: RefCell::new(None),
         })
     }
     pub fn from_document(mut document: Document) -> Result<Self, DiagramError> {
@@ -848,6 +888,7 @@ impl Engine {
             undo: vec![],
             redo: vec![],
             route_cache: RefCell::new(HashMap::new()),
+            display_cache: RefCell::new(None),
         })
     }
     pub fn document(&self) -> &Document {
@@ -920,6 +961,9 @@ impl Engine {
     pub fn display_scene_json(&self) -> String {
         serialize_display_scene(&self.display_scene())
     }
+    pub fn display_update_json(&self, force_full: bool) -> String {
+        serialize_display_update(&self.display_update_for(&self.document, force_full))
+    }
     pub fn preview_patch_json(&self, json: &str) -> Result<String, DiagramError> {
         let patch: DocumentPatch = serde_json::from_str(json).map_err(|e| {
             DiagramError::with_code(
@@ -937,6 +981,25 @@ impl Engine {
             Some(&self.route_cache),
         )))
     }
+    pub fn preview_patch_update_json(
+        &self,
+        json: &str,
+        force_full: bool,
+    ) -> Result<String, DiagramError> {
+        let patch: DocumentPatch = serde_json::from_str(json).map_err(|e| {
+            DiagramError::with_code(
+                ErrorCode::InvalidPatchJson,
+                format!("invalid document patch JSON: {e}"),
+            )
+        })?;
+        let mut document = self.document.clone();
+        apply_document_patch(&mut document, patch)?;
+        validate_document(&document)
+            .map_err(|error| error.with_replaced_code(ErrorCode::InvalidPatch))?;
+        Ok(serialize_display_update(
+            &self.display_update_for(&document, force_full),
+        ))
+    }
     pub fn export_text(&self, ascii: bool) -> Result<String, DiagramError> {
         render_text(&compose_cached(
             &self.document,
@@ -947,6 +1010,248 @@ impl Engine {
     pub fn export_svg(&self) -> Result<String, DiagramError> {
         render_svg(&self.scene())
     }
+
+    fn display_update_for(&self, document: &Document, force_full: bool) -> DisplayUpdate {
+        let (visible_nodes, visible_edges, routes) =
+            display_projection_parts(document, Some(&self.route_cache));
+        let label_rows = compose_label_rows(&visible_edges, &routes, &visible_nodes);
+        let mut cache_slot = self.display_cache.borrow_mut();
+        let must_full = cache_slot
+            .as_ref()
+            .is_none_or(|cache| node_order(&cache.document) != node_order(document));
+
+        if must_full {
+            let rows = compose_all_display_rows(&label_rows, &visible_nodes);
+            let bounds = display_bounds_for_rows(&rows, &routes);
+            let update = full_display_update(&rows, &routes, &bounds);
+            retain_display_cache(&mut cache_slot, document, rows, label_rows, routes);
+            return update;
+        }
+
+        let mut previous = cache_slot.take().expect("checked display cache");
+        let mut dirty_rows = changed_node_rows(&previous.document, document);
+        dirty_rows.extend(changed_map_rows(&previous.label_rows, &label_rows));
+        if dirty_rows.len() > MAX_INCREMENTAL_DIRTY_ROWS {
+            let rows = compose_all_display_rows(&label_rows, &visible_nodes);
+            let bounds = display_bounds_for_rows(&rows, &routes);
+            let update = full_display_update(&rows, &routes, &bounds);
+            retain_display_cache(&mut cache_slot, document, rows, label_rows, routes);
+            return update;
+        }
+
+        let recomposed = compose_dirty_display_rows(&label_rows, &visible_nodes, &dirty_rows);
+        let mut changed_rows = Vec::new();
+        for y in dirty_rows {
+            let cells = recomposed.get(&y).cloned().unwrap_or_default();
+            if previous.rows.get(&y).map(Vec::as_slice).unwrap_or_default() == cells.as_slice() {
+                continue;
+            }
+            if cells.is_empty() {
+                previous.rows.remove(&y);
+            } else {
+                previous.rows.insert(y, cells.clone());
+            }
+            changed_rows.push(DisplayRow { y, cells });
+        }
+        changed_rows.sort_by_key(|row| row.y);
+
+        let previous_routes: HashMap<&str, &Route> = previous
+            .routes
+            .iter()
+            .map(|route| (route.id.as_str(), route))
+            .collect();
+        let next_route_ids: HashSet<&str> = routes.iter().map(|route| route.id.as_str()).collect();
+        let changed_routes = routes
+            .iter()
+            .filter(|route| previous_routes.get(route.id.as_str()).copied() != Some(*route))
+            .cloned()
+            .collect();
+        let removed_route_ids = previous
+            .routes
+            .iter()
+            .filter(|route| !next_route_ids.contains(route.id.as_str()))
+            .map(|route| route.id.clone())
+            .collect();
+        let old_order = route_order(&previous.routes);
+        let new_order = route_order(&routes);
+        let route_order = (old_order != new_order).then_some(new_order);
+        let bounds = display_bounds_for_rows(&previous.rows, &routes);
+
+        let delta = DisplayUpdate::Delta {
+            rows: changed_rows,
+            routes: changed_routes,
+            removed_route_ids,
+            route_order,
+            bounds: bounds.clone(),
+        };
+        let full = force_full.then(|| full_display_update(&previous.rows, &routes, &bounds));
+        retain_display_cache(&mut cache_slot, document, previous.rows, label_rows, routes);
+        full.unwrap_or(delta)
+    }
+}
+
+fn node_order(document: &Document) -> Vec<&str> {
+    document.nodes.iter().map(|node| node.id.as_str()).collect()
+}
+
+fn route_order(routes: &[Route]) -> Vec<String> {
+    routes.iter().map(|route| route.id.clone()).collect()
+}
+
+fn full_display_update(
+    rows: &BTreeMap<i32, Vec<Cell>>,
+    routes: &[Route],
+    bounds: &Bounds,
+) -> DisplayUpdate {
+    DisplayUpdate::Full {
+        rows: rows
+            .iter()
+            .map(|(&y, cells)| DisplayRow {
+                y,
+                cells: cells.clone(),
+            })
+            .collect(),
+        routes: routes.to_vec(),
+        bounds: bounds.clone(),
+    }
+}
+
+fn retain_display_cache(
+    slot: &mut Option<DisplayCache>,
+    document: &Document,
+    rows: BTreeMap<i32, Vec<Cell>>,
+    label_rows: BTreeMap<i32, Vec<Cell>>,
+    routes: Vec<Route>,
+) {
+    let cell_count = rows.values().map(Vec::len).sum::<usize>();
+    let label_cell_count = label_rows.values().map(Vec::len).sum::<usize>();
+    let route_point_count = routes.iter().map(|route| route.points.len()).sum::<usize>();
+    let retain = cell_count <= MAX_RETAINED_DISPLAY_CELLS
+        && route_point_count <= MAX_RETAINED_ROUTE_POINTS
+        && cell_count + label_cell_count + route_point_count <= MAX_RETAINED_DISPLAY_ITEMS;
+    *slot = retain.then(|| DisplayCache {
+        document: document.clone(),
+        rows,
+        label_rows,
+        routes,
+    });
+}
+
+fn changed_node_rows(old: &Document, new: &Document) -> BTreeSet<i32> {
+    let old_nodes: HashMap<&str, &Node> = old
+        .nodes
+        .iter()
+        .map(|node| (node.id.as_str(), node))
+        .collect();
+    let new_nodes: HashMap<&str, &Node> = new
+        .nodes
+        .iter()
+        .map(|node| (node.id.as_str(), node))
+        .collect();
+    let mut dirty = BTreeSet::new();
+    for id in old_nodes.keys().chain(new_nodes.keys()) {
+        let old_node = old_nodes.get(id).copied();
+        let new_node = new_nodes.get(id).copied();
+        if old_node == new_node {
+            continue;
+        }
+        for node in old_node.into_iter().chain(new_node) {
+            if !node.hidden.unwrap_or(false) {
+                for y in node.y..=node.y + node.height {
+                    dirty.insert(y);
+                    if dirty.len() > MAX_INCREMENTAL_DIRTY_ROWS {
+                        return dirty;
+                    }
+                }
+            }
+        }
+    }
+    dirty
+}
+
+fn changed_map_rows(
+    old: &BTreeMap<i32, Vec<Cell>>,
+    new: &BTreeMap<i32, Vec<Cell>>,
+) -> BTreeSet<i32> {
+    old.keys()
+        .chain(new.keys())
+        .filter(|&&y| old.get(&y) != new.get(&y))
+        .copied()
+        .collect()
+}
+
+fn cells_to_rows(map: BTreeMap<(i32, i32), char>) -> BTreeMap<i32, Vec<Cell>> {
+    let mut rows = BTreeMap::<i32, Vec<Cell>>::new();
+    for ((y, x), ch) in map {
+        rows.entry(y).or_default().push(Cell {
+            x,
+            y,
+            ch: ch.to_string(),
+        });
+    }
+    rows
+}
+
+fn compose_label_rows(
+    edges: &[Edge],
+    routes: &[Route],
+    nodes: &[Node],
+) -> BTreeMap<i32, Vec<Cell>> {
+    let mut map = BTreeMap::new();
+    for (edge, route) in edges.iter().zip(routes) {
+        draw_edge_label(&mut map, edge, route, nodes, false);
+    }
+    cells_to_rows(map)
+}
+
+fn compose_all_display_rows(
+    label_rows: &BTreeMap<i32, Vec<Cell>>,
+    nodes: &[Node],
+) -> BTreeMap<i32, Vec<Cell>> {
+    let mut map = BTreeMap::new();
+    for cells in label_rows.values() {
+        for cell in cells {
+            map.insert(
+                (cell.y, cell.x),
+                cell.ch.chars().next().expect("cell character"),
+            );
+        }
+    }
+    for node in nodes {
+        draw_node(&mut map, node, false);
+    }
+    cells_to_rows(map)
+}
+
+fn compose_dirty_display_rows(
+    label_rows: &BTreeMap<i32, Vec<Cell>>,
+    nodes: &[Node],
+    dirty_rows: &BTreeSet<i32>,
+) -> BTreeMap<i32, Vec<Cell>> {
+    let mut map = BTreeMap::new();
+    for &y in dirty_rows {
+        if let Some(cells) = label_rows.get(&y) {
+            for cell in cells {
+                map.insert((y, cell.x), cell.ch.chars().next().expect("cell character"));
+            }
+        }
+    }
+    for node in nodes {
+        let bottom = node.y + node.height;
+        if dirty_rows.range(node.y..=bottom).next().is_some() {
+            draw_node(&mut map, node, false);
+        }
+    }
+    map.retain(|(y, _), _| dirty_rows.contains(y));
+    cells_to_rows(map)
+}
+
+fn display_bounds_for_rows(rows: &BTreeMap<i32, Vec<Cell>>, routes: &[Route]) -> Bounds {
+    display_bounds_for_cells(rows.values().flatten(), routes)
+}
+
+fn serialize_display_update(update: &DisplayUpdate) -> String {
+    serde_json::to_string(update).expect("serializable display update")
 }
 
 fn serialize_display_scene(scene: &Scene) -> String {
@@ -1650,92 +1955,109 @@ fn compose_display_cached(
     compose_cached_with_terminal_cells(doc, ascii, cache, false)
 }
 
-fn compose_cached_with_terminal_cells(
+fn display_projection_parts(
     doc: &Document,
-    ascii: bool,
     cache: Option<&RefCell<HashMap<String, RouteCacheEntry>>>,
-    include_terminal_cells: bool,
-) -> Scene {
+) -> (Vec<Node>, Vec<Edge>, Vec<Route>) {
     let visible_nodes: Vec<Node> = doc
         .nodes
         .iter()
-        .filter(|n| !n.hidden.unwrap_or(false))
+        .filter(|node| !node.hidden.unwrap_or(false))
         .cloned()
         .collect();
-    let nodes: HashMap<&str, &Node> = visible_nodes.iter().map(|n| (n.id.as_str(), n)).collect();
-    let visible_edges: Vec<&Edge> = doc
+    let nodes: HashMap<&str, &Node> = visible_nodes
+        .iter()
+        .map(|node| (node.id.as_str(), node))
+        .collect();
+    let visible_edges: Vec<Edge> = doc
         .edges
         .iter()
         .filter(|edge| {
             (edge.from.is_empty() || nodes.contains_key(edge.from.as_str()))
                 && (edge.to.is_empty() || nodes.contains_key(edge.to.as_str()))
         })
+        .cloned()
         .collect();
     let route_bounds = visible_nodes
         .first()
         .map(|fallback| routing_bounds(&visible_nodes, fallback));
-    let routes: Vec<Route> = visible_edges
+    let routes = visible_edges
         .iter()
-        .map(|&e| {
+        .map(|edge| {
             let free_from;
             let free_to;
-            let from = if e.from.is_empty() {
-                let p = e.from_point.expect("validated free source");
-                free_from = free_endpoint_node("__free_from", p);
+            let from = if edge.from.is_empty() {
+                let point = edge.from_point.expect("validated free source");
+                free_from = free_endpoint_node("__free_from", point);
                 &free_from
             } else {
-                nodes[&e.from.as_str()]
+                nodes[&edge.from.as_str()]
             };
-            let to = if e.to.is_empty() {
-                let p = e.to_point.expect("validated free target");
-                free_to = free_endpoint_node("__free_to", p);
+            let to = if edge.to.is_empty() {
+                let point = edge.to_point.expect("validated free target");
+                free_to = free_endpoint_node("__free_to", point);
                 &free_to
             } else {
-                nodes[&e.to.as_str()]
+                nodes[&edge.to.as_str()]
             };
-            let bounds = if e.from.is_empty() || e.to.is_empty() {
+            let bounds = if edge.from.is_empty() || edge.to.is_empty() {
                 routing_bounds_with_endpoints(&visible_nodes, from, to)
             } else {
                 route_bounds.unwrap_or_else(|| routing_bounds(&visible_nodes, from))
             };
-            Route {
-                id: e.id.clone(),
-                points: if e.from.is_empty() || e.to.is_empty() {
-                    if e.routing == Some(RoutingStyle::Staircase) {
-                        staircase_route(from, to, &visible_nodes, e.from_side, e.to_side, bounds)
-                    } else {
-                        route_with_bounds(from, to, &visible_nodes, e.from_side, e.to_side, bounds)
-                    }
-                } else {
-                    cache.map_or_else(
-                        || {
-                            if e.routing == Some(RoutingStyle::Staircase) {
-                                staircase_route(
-                                    from,
-                                    to,
-                                    &visible_nodes,
-                                    e.from_side,
-                                    e.to_side,
-                                    bounds,
-                                )
-                            } else {
-                                route_with_bounds(
-                                    from,
-                                    to,
-                                    &visible_nodes,
-                                    e.from_side,
-                                    e.to_side,
-                                    bounds,
-                                )
-                            }
-                        },
-                        |cache| cached_route(e, from, to, &visible_nodes, bounds, cache),
+            let points = if edge.from.is_empty() || edge.to.is_empty() {
+                if edge.routing == Some(RoutingStyle::Staircase) {
+                    staircase_route(
+                        from,
+                        to,
+                        &visible_nodes,
+                        edge.from_side,
+                        edge.to_side,
+                        bounds,
                     )
-                },
-                start_arrow: e.start_arrow.unwrap_or(ArrowStyle::None),
-                end_arrow: e.end_arrow.unwrap_or(ArrowStyle::Arrow),
-                line_style: e.line_style.unwrap_or(LineStyle::Solid),
-                routing: e.routing.unwrap_or(RoutingStyle::Orthogonal),
+                } else {
+                    route_with_bounds(
+                        from,
+                        to,
+                        &visible_nodes,
+                        edge.from_side,
+                        edge.to_side,
+                        bounds,
+                    )
+                }
+            } else {
+                cache.map_or_else(
+                    || {
+                        if edge.routing == Some(RoutingStyle::Staircase) {
+                            staircase_route(
+                                from,
+                                to,
+                                &visible_nodes,
+                                edge.from_side,
+                                edge.to_side,
+                                bounds,
+                            )
+                        } else {
+                            route_with_bounds(
+                                from,
+                                to,
+                                &visible_nodes,
+                                edge.from_side,
+                                edge.to_side,
+                                bounds,
+                            )
+                        }
+                    },
+                    |cache| cached_route(edge, from, to, &visible_nodes, bounds, cache),
+                )
+            };
+            Route {
+                id: edge.id.clone(),
+                points,
+                start_arrow: edge.start_arrow.unwrap_or(ArrowStyle::None),
+                end_arrow: edge.end_arrow.unwrap_or(ArrowStyle::Arrow),
+                line_style: edge.line_style.unwrap_or(LineStyle::Solid),
+                routing: edge.routing.unwrap_or(RoutingStyle::Orthogonal),
             }
         })
         .collect();
@@ -1745,6 +2067,16 @@ fn compose_cached_with_terminal_cells(
             .borrow_mut()
             .retain(|edge_id, _| live_edges.contains(edge_id.as_str()));
     }
+    (visible_nodes, visible_edges, routes)
+}
+
+fn compose_cached_with_terminal_cells(
+    doc: &Document,
+    ascii: bool,
+    cache: Option<&RefCell<HashMap<String, RouteCacheEntry>>>,
+    include_terminal_cells: bool,
+) -> Scene {
+    let (visible_nodes, visible_edges, routes) = display_projection_parts(doc, cache);
     let mut display_map = BTreeMap::<(i32, i32), char>::new();
     for (edge, route) in visible_edges.iter().zip(&routes) {
         draw_edge_label(&mut display_map, edge, route, &visible_nodes, ascii);
@@ -1822,6 +2154,13 @@ fn compose_cached_with_terminal_cells(
 }
 
 fn display_bounds_for(display_cells: &[Cell], routes: &[Route]) -> Bounds {
+    display_bounds_for_cells(display_cells.iter(), routes)
+}
+
+fn display_bounds_for_cells<'a>(
+    display_cells: impl Iterator<Item = &'a Cell>,
+    routes: &[Route],
+) -> Bounds {
     // display_cells already contain the final node/label layer. A bordered node may
     // clear earlier route cells from its interior, but every cleared position is
     // strictly inside the border written by that same node, so it cannot define a
@@ -2565,8 +2904,6 @@ fn escape_xml(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use std::path::Path;
 
     fn json(label: &str) -> String {
         format!(
@@ -2586,19 +2923,556 @@ mod tests {
         );
     }
 
+    fn apply_display_update(
+        rows: &mut BTreeMap<i32, Vec<Cell>>,
+        routes: &mut Vec<Route>,
+        bounds: &mut Bounds,
+        update_json: &str,
+    ) {
+        match serde_json::from_str::<DisplayUpdate>(update_json).unwrap() {
+            DisplayUpdate::Full {
+                rows: next_rows,
+                routes: next_routes,
+                bounds: next_bounds,
+            } => {
+                *rows = next_rows
+                    .into_iter()
+                    .map(|row| (row.y, row.cells))
+                    .collect();
+                *routes = next_routes;
+                *bounds = next_bounds;
+            }
+            DisplayUpdate::Delta {
+                rows: changed_rows,
+                routes: changed_routes,
+                removed_route_ids,
+                route_order,
+                bounds: next_bounds,
+            } => {
+                for row in changed_rows {
+                    if row.cells.is_empty() {
+                        rows.remove(&row.y);
+                    } else {
+                        rows.insert(row.y, row.cells);
+                    }
+                }
+                let removed: HashSet<&str> = removed_route_ids.iter().map(String::as_str).collect();
+                routes.retain(|route| !removed.contains(route.id.as_str()));
+                for route in changed_routes {
+                    if let Some(existing) = routes.iter_mut().find(|old| old.id == route.id) {
+                        *existing = route;
+                    } else {
+                        routes.push(route);
+                    }
+                }
+                if let Some(order) = route_order {
+                    let mut by_id: HashMap<String, Route> = routes
+                        .drain(..)
+                        .map(|route| (route.id.clone(), route))
+                        .collect();
+                    *routes = order
+                        .into_iter()
+                        .map(|id| by_id.remove(&id).expect("ordered route exists"))
+                        .collect();
+                }
+                *bounds = next_bounds;
+            }
+        }
+    }
+
+    fn assert_incremental_matches_oracle(
+        engine: &Engine,
+        rows: &BTreeMap<i32, Vec<Cell>>,
+        routes: &[Route],
+        bounds: &Bounds,
+    ) {
+        let oracle = engine.display_scene();
+        let cells = rows.values().flatten().cloned().collect::<Vec<_>>();
+        assert_eq!(cells, oracle.display_cells);
+        assert_eq!(routes, oracle.routes);
+        assert_eq!(bounds, &oracle.bounds);
+    }
+
+    fn edge(id: impl Into<String>, from: &str, to: &str, label: &str) -> Edge {
+        Edge {
+            id: id.into(),
+            from: from.into(),
+            to: to.into(),
+            label: label.into(),
+            from_side: None,
+            to_side: None,
+            from_point: None,
+            to_point: None,
+            start_arrow: None,
+            end_arrow: None,
+            line_style: None,
+            routing: None,
+        }
+    }
+
+    fn representative_documents() -> Vec<(&'static str, Document)> {
+        let mut shapes = [
+            ("service", NodeKind::Service, -30, -12, "API"),
+            ("database", NodeKind::Database, -12, 2, "primary database"),
+            ("queue", NodeKind::Queue, 8, -8, "work queue"),
+            ("boundary", NodeKind::Boundary, 25, 3, "trusted boundary"),
+            (
+                "text",
+                NodeKind::Text,
+                -20,
+                15,
+                "a deliberately long text label that wraps",
+            ),
+            ("box", NodeKind::Rectangle, 18, 16, "plain box"),
+        ]
+        .map(|(id, kind, x, y, label)| {
+            let mut value = node(id, x, y, 14, 5);
+            value.kind = kind;
+            value.label = label.into();
+            value.wrap_text = Some(true);
+            value
+        });
+        shapes[3].width = 20;
+        let edges = (0..shapes.len() - 1)
+            .map(|index| {
+                edge(
+                    format!("edge-{index}"),
+                    &shapes[index].id,
+                    &shapes[index + 1].id,
+                    "label",
+                )
+            })
+            .collect();
+        vec![(
+            "varied shapes, labels, and coordinates",
+            Document {
+                version: DOCUMENT_VERSION,
+                title: "representative".into(),
+                nodes: shapes.into(),
+                edges,
+            },
+        )]
+    }
+
+    fn capacity_document() -> Document {
+        let nodes = (0..2_000)
+            .map(|index| node(&format!("node-{index}"), 0, 0, 3, 1))
+            .collect();
+        let edges = (0..3_000)
+            .map(|index| edge(format!("edge-{index}"), "node-0", "node-1", ""))
+            .collect();
+        Document {
+            version: DOCUMENT_VERSION,
+            title: "capacity".into(),
+            nodes,
+            edges,
+        }
+    }
+
     #[test]
-    fn display_only_composition_matches_full_scene_for_all_benchmark_fixtures() {
-        let fixture_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/benchmarks");
-        for name in [
-            "small.mso",
-            "medium.mso",
-            "large.mso",
-            "dense.mso",
-            "boundaries.mso",
-            "long-labels.mso",
-            "offscreen.mso",
-        ] {
-            let json = fs::read_to_string(fixture_dir.join(name)).unwrap();
+    fn incremental_display_updates_replay_to_the_full_oracle() {
+        let document = r#"{"version":3,"title":"incremental","nodes":[{"id":"back","kind":"rectangle","label":"background","x":0,"y":0,"width":18,"height":7,"fill":"."},{"id":"front","kind":"service","label":"front","x":5,"y":2,"width":9,"height":4,"shadow":true},{"id":"target","kind":"database","label":"db","x":28,"y":1,"width":8,"height":5}],"edges":[{"id":"edge","from":"front","to":"target","label":"request"}]}"#;
+        let mut engine = Engine::new(document).unwrap();
+        let mut rows = BTreeMap::new();
+        let mut routes = Vec::new();
+        let mut bounds = Bounds {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+        };
+        apply_display_update(
+            &mut rows,
+            &mut routes,
+            &mut bounds,
+            &engine.display_update_json(false),
+        );
+        assert_incremental_matches_oracle(&engine, &rows, &routes, &bounds);
+
+        let patches = [
+            r#"{"updatedNodes":[{"id":"front","kind":"service","label":"moved","x":8,"y":4,"width":9,"height":4,"shadow":true}]}"#,
+            r#"{"updatedEdges":[{"id":"edge","from":"front","to":"target","label":"a much longer label","routing":"staircase","lineStyle":"dashed"}]}"#,
+            r#"{"updatedNodes":[{"id":"back","kind":"rectangle","label":"background","x":0,"y":0,"width":18,"height":7,"fill":".","hidden":true}]}"#,
+            r#"{"updatedNodes":[{"id":"front","kind":"service","label":"","x":8,"y":4,"width":9,"height":4,"border":"none"}]}"#,
+        ];
+        for patch in patches {
+            engine.apply_patch_json(patch).unwrap();
+            apply_display_update(
+                &mut rows,
+                &mut routes,
+                &mut bounds,
+                &engine.display_update_json(false),
+            );
+            assert_incremental_matches_oracle(&engine, &rows, &routes, &bounds);
+        }
+
+        assert!(engine.undo());
+        apply_display_update(
+            &mut rows,
+            &mut routes,
+            &mut bounds,
+            &engine.display_update_json(false),
+        );
+        assert_incremental_matches_oracle(&engine, &rows, &routes, &bounds);
+        assert!(engine.redo());
+        apply_display_update(
+            &mut rows,
+            &mut routes,
+            &mut bounds,
+            &engine.display_update_json(false),
+        );
+        assert_incremental_matches_oracle(&engine, &rows, &routes, &bounds);
+
+        let preview = r#"{"updatedNodes":[{"id":"target","kind":"database","label":"preview","x":22,"y":10,"width":10,"height":5}]}"#;
+        let preview_json = engine.preview_patch_update_json(preview, false).unwrap();
+        apply_display_update(&mut rows, &mut routes, &mut bounds, &preview_json);
+        let mut preview_document = engine.document().clone();
+        apply_document_patch(
+            &mut preview_document,
+            serde_json::from_str(preview).unwrap(),
+        )
+        .unwrap();
+        let preview_oracle = compose_display_cached(&preview_document, false, None);
+        assert_eq!(
+            rows.values().flatten().cloned().collect::<Vec<_>>(),
+            preview_oracle.display_cells
+        );
+        assert_eq!(routes, preview_oracle.routes);
+        assert_eq!(bounds, preview_oracle.bounds);
+
+        assert!(
+            engine
+                .preview_patch_update_json(r#"{"removedNodeIds":["missing"]}"#, false)
+                .is_err()
+        );
+        engine.apply_patch_json(preview).unwrap();
+        apply_display_update(
+            &mut rows,
+            &mut routes,
+            &mut bounds,
+            &engine.display_update_json(false),
+        );
+        assert_incremental_matches_oracle(&engine, &rows, &routes, &bounds);
+
+        let forced = engine.display_update_json(true);
+        assert!(matches!(
+            serde_json::from_str::<DisplayUpdate>(&forced).unwrap(),
+            DisplayUpdate::Full { .. }
+        ));
+    }
+
+    #[test]
+    fn incremental_previews_match_the_oracle_for_generated_documents() {
+        let mut documents = representative_documents();
+        documents.push(("maximum node count with many edges", capacity_document()));
+        for (name, document) in documents {
+            let json = serde_json::to_string(&document).unwrap();
+            let engine = Engine::new(&json).unwrap();
+            let mut rows = BTreeMap::new();
+            let mut routes = Vec::new();
+            let mut bounds = Bounds {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+            };
+            apply_display_update(
+                &mut rows,
+                &mut routes,
+                &mut bounds,
+                &engine.display_update_json(false),
+            );
+            assert!(
+                engine.display_cache.borrow().is_some(),
+                "document exceeds retained display budget: {name}"
+            );
+
+            let original = engine.document().nodes[0].clone();
+            for offset in [1, 2, 1, 0] {
+                let mut node = original.clone();
+                node.x += offset;
+                let patch = serde_json::to_string(&DocumentPatch {
+                    updated_nodes: vec![node],
+                    ..DocumentPatch::default()
+                })
+                .unwrap();
+                let update = engine.preview_patch_update_json(&patch, false).unwrap();
+                apply_display_update(&mut rows, &mut routes, &mut bounds, &update);
+
+                let mut preview = engine.document().clone();
+                apply_document_patch(
+                    &mut preview,
+                    serde_json::from_str::<DocumentPatch>(&patch).unwrap(),
+                )
+                .unwrap();
+                let oracle = compose_display_cached(&preview, false, None);
+                assert_eq!(
+                    rows.values().flatten().cloned().collect::<Vec<_>>(),
+                    oracle.display_cells,
+                    "cells: {name}, offset {offset}"
+                );
+                assert_eq!(routes, oracle.routes, "routes: {name}, offset {offset}");
+                assert_eq!(bounds, oracle.bounds, "bounds: {name}, offset {offset}");
+            }
+        }
+    }
+
+    #[test]
+    fn incremental_delta_omits_unchanged_rows_and_broad_edits_fall_back_to_full() {
+        let mut engine = Engine::new(&json("api")).unwrap();
+        let initial = engine.display_update_json(false);
+        let DisplayUpdate::Full {
+            rows: initial_rows, ..
+        } = serde_json::from_str::<DisplayUpdate>(&initial).unwrap()
+        else {
+            panic!("first update must be full");
+        };
+        engine
+            .apply_patch_json(
+                r#"{"updatedNodes":[{"id":"a","kind":"service","label":"api","x":1,"y":0,"width":8,"height":3}]}"#,
+            )
+            .unwrap();
+        let delta_json = engine.display_update_json(false);
+        let DisplayUpdate::Delta { rows, .. } =
+            serde_json::from_str::<DisplayUpdate>(&delta_json).unwrap()
+        else {
+            panic!("narrow edit must stay incremental");
+        };
+        assert!(!rows.is_empty());
+        assert_eq!(rows.len(), initial_rows.len());
+        assert!(rows.iter().all(|row| row.y < 3));
+
+        let tall = format!(
+            r#"{{"version":3,"title":"tall","nodes":[{{"id":"t","kind":"rectangle","label":"","x":0,"y":0,"width":3,"height":{}}}],"edges":[]}}"#,
+            MAX_INCREMENTAL_DIRTY_ROWS + 1
+        );
+        let mut tall_engine = Engine::new(&tall).unwrap();
+        tall_engine.display_update_json(false);
+        tall_engine
+            .apply_patch_json(&format!(
+                r#"{{"updatedNodes":[{{"id":"t","kind":"rectangle","label":"","x":1,"y":0,"width":3,"height":{}}}]}}"#,
+                MAX_INCREMENTAL_DIRTY_ROWS + 1
+            ))
+            .unwrap();
+        assert!(matches!(
+            serde_json::from_str::<DisplayUpdate>(&tall_engine.display_update_json(false)).unwrap(),
+            DisplayUpdate::Full { .. }
+        ));
+    }
+
+    #[test]
+    fn incremental_transport_handles_order_and_entity_lifecycles() {
+        let empty = r#"{"version":3,"title":"empty","nodes":[],"edges":[]}"#;
+        let mut engine = Engine::new(empty).unwrap();
+        assert!(matches!(
+            serde_json::from_str::<DisplayUpdate>(&engine.display_update_json(false)).unwrap(),
+            DisplayUpdate::Full { .. }
+        ));
+
+        engine
+            .apply_patch(DocumentPatch {
+                added_nodes: vec![node("a", 0, 0, 8, 3)],
+                ..DocumentPatch::default()
+            })
+            .unwrap();
+        assert!(matches!(
+            serde_json::from_str::<DisplayUpdate>(&engine.display_update_json(false)).unwrap(),
+            DisplayUpdate::Full { .. }
+        ));
+        engine
+            .apply_patch(DocumentPatch {
+                removed_node_ids: vec!["a".into()],
+                ..DocumentPatch::default()
+            })
+            .unwrap();
+        assert!(matches!(
+            serde_json::from_str::<DisplayUpdate>(&engine.display_update_json(false)).unwrap(),
+            DisplayUpdate::Full { rows, .. } if rows.is_empty()
+        ));
+
+        engine.replace(&json("api")).unwrap();
+        assert!(matches!(
+            serde_json::from_str::<DisplayUpdate>(&engine.display_update_json(false)).unwrap(),
+            DisplayUpdate::Full { .. }
+        ));
+        engine
+            .apply_patch(DocumentPatch {
+                node_order: Some(vec!["b".into(), "a".into()]),
+                ..DocumentPatch::default()
+            })
+            .unwrap();
+        assert!(matches!(
+            serde_json::from_str::<DisplayUpdate>(&engine.display_update_json(false)).unwrap(),
+            DisplayUpdate::Full { .. }
+        ));
+    }
+
+    #[test]
+    fn incremental_transport_tracks_route_visibility_add_remove_and_order() {
+        let document = r#"{"version":3,"title":"routes","nodes":[{"id":"a","kind":"service","label":"a","x":0,"y":0,"width":7,"height":3},{"id":"b","kind":"database","label":"b","x":24,"y":0,"width":7,"height":3},{"id":"blocker","kind":"queue","label":"blocker","x":11,"y":-1,"width":7,"height":5}],"edges":[{"id":"first","from":"a","to":"b","label":"route label"},{"id":"second","from":"b","to":"a","label":"return","routing":"staircase"}]}"#;
+        let mut engine = Engine::new(document).unwrap();
+        let mut rows = BTreeMap::new();
+        let mut routes = Vec::new();
+        let mut bounds = Bounds {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+        };
+        apply_display_update(
+            &mut rows,
+            &mut routes,
+            &mut bounds,
+            &engine.display_update_json(false),
+        );
+
+        let mut hidden = engine.document().nodes[0].clone();
+        hidden.hidden = Some(true);
+        engine
+            .apply_patch(DocumentPatch {
+                updated_nodes: vec![hidden],
+                ..DocumentPatch::default()
+            })
+            .unwrap();
+        let hidden_update = engine.display_update_json(false);
+        assert!(matches!(
+            serde_json::from_str::<DisplayUpdate>(&hidden_update).unwrap(),
+            DisplayUpdate::Delta { removed_route_ids, .. }
+                if removed_route_ids == vec!["first".to_string(), "second".to_string()]
+        ));
+        apply_display_update(&mut rows, &mut routes, &mut bounds, &hidden_update);
+        assert_incremental_matches_oracle(&engine, &rows, &routes, &bounds);
+
+        let mut visible = engine.document().nodes[0].clone();
+        visible.hidden = None;
+        engine
+            .apply_patch(DocumentPatch {
+                updated_nodes: vec![visible],
+                ..DocumentPatch::default()
+            })
+            .unwrap();
+        let visible_update = engine.display_update_json(false);
+        assert!(matches!(
+            serde_json::from_str::<DisplayUpdate>(&visible_update).unwrap(),
+            DisplayUpdate::Delta { routes, route_order: Some(_), .. } if routes.len() == 2
+        ));
+        apply_display_update(&mut rows, &mut routes, &mut bounds, &visible_update);
+        assert_incremental_matches_oracle(&engine, &rows, &routes, &bounds);
+
+        engine
+            .apply_patch(DocumentPatch {
+                removed_edge_ids: vec!["second".into()],
+                ..DocumentPatch::default()
+            })
+            .unwrap();
+        let removed = engine.display_update_json(false);
+        assert!(matches!(
+            serde_json::from_str::<DisplayUpdate>(&removed).unwrap(),
+            DisplayUpdate::Delta { removed_route_ids, route_order: Some(_), .. }
+                if removed_route_ids == vec!["second".to_string()]
+        ));
+        apply_display_update(&mut rows, &mut routes, &mut bounds, &removed);
+        assert_incremental_matches_oracle(&engine, &rows, &routes, &bounds);
+
+        let added = Edge {
+            id: "third".into(),
+            from: "a".into(),
+            to: "b".into(),
+            label: "new".into(),
+            from_side: None,
+            to_side: None,
+            from_point: None,
+            to_point: None,
+            start_arrow: None,
+            end_arrow: None,
+            line_style: None,
+            routing: Some(RoutingStyle::Staircase),
+        };
+        engine
+            .apply_patch(DocumentPatch {
+                added_edges: vec![added],
+                ..DocumentPatch::default()
+            })
+            .unwrap();
+        let added_update = engine.display_update_json(false);
+        assert!(matches!(
+            serde_json::from_str::<DisplayUpdate>(&added_update).unwrap(),
+            DisplayUpdate::Delta { routes, route_order: Some(_), .. }
+                if routes.iter().any(|route| route.id == "third")
+        ));
+        apply_display_update(&mut rows, &mut routes, &mut bounds, &added_update);
+        assert_incremental_matches_oracle(&engine, &rows, &routes, &bounds);
+
+        let mut reordered = engine.document().clone();
+        reordered.edges.reverse();
+        engine
+            .replace(&serde_json::to_string(&reordered).unwrap())
+            .unwrap();
+        let reordered_update = engine.display_update_json(false);
+        assert!(matches!(
+            serde_json::from_str::<DisplayUpdate>(&reordered_update).unwrap(),
+            DisplayUpdate::Delta { routes, removed_route_ids, route_order: Some(_), .. }
+                if routes.is_empty() && removed_route_ids.is_empty()
+        ));
+        apply_display_update(&mut rows, &mut routes, &mut bounds, &reordered_update);
+        assert_incremental_matches_oracle(&engine, &rows, &routes, &bounds);
+
+        let mut moved_blocker = engine
+            .document()
+            .nodes
+            .iter()
+            .find(|node| node.id == "blocker")
+            .unwrap()
+            .clone();
+        moved_blocker.y += 12;
+        engine
+            .apply_patch(DocumentPatch {
+                updated_nodes: vec![moved_blocker],
+                ..DocumentPatch::default()
+            })
+            .unwrap();
+        let moved_update = engine.display_update_json(false);
+        apply_display_update(&mut rows, &mut routes, &mut bounds, &moved_update);
+        assert_incremental_matches_oracle(&engine, &rows, &routes, &bounds);
+    }
+
+    #[test]
+    fn rejected_incremental_preview_does_not_advance_the_display_cache() {
+        let engine = Engine::new(&json("api")).unwrap();
+        engine.display_update_json(false);
+        let cached_document = engine
+            .display_cache
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .document
+            .clone();
+        assert!(
+            engine
+                .preview_patch_update_json(r#"{"removedNodeIds":["missing"]}"#, false)
+                .is_err()
+        );
+        assert_eq!(
+            engine
+                .display_cache
+                .borrow()
+                .as_ref()
+                .unwrap()
+                .document
+                .clone(),
+            cached_document
+        );
+        assert!(matches!(
+            serde_json::from_str::<DisplayUpdate>(&engine.display_update_json(false)).unwrap(),
+            DisplayUpdate::Delta { rows, routes, removed_route_ids, route_order: None, .. }
+                if rows.is_empty() && routes.is_empty() && removed_route_ids.is_empty()
+        ));
+    }
+
+    #[test]
+    fn display_only_composition_matches_full_scene_for_generated_documents() {
+        for (name, document) in representative_documents() {
+            let json = serde_json::to_string(&document).unwrap();
             assert_display_composition_matches_full(&json, name);
         }
     }

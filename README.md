@@ -95,9 +95,7 @@ cat fixtures/event-driven.mso | cargo run -p draw-cli -- export --format ascii
 
 Successful validation is silent. Exports go to stdout; errors go to stderr with a nonzero exit code.
 
-## Performance and the document contract
-
-Run `pnpm bench:native` and `pnpm bench:browser` separately for repeatable native-core and production-browser measurements. See [performance baselines](docs/performance/README.md) for methodology and interpretation.
+## Document contract
 
 The versioned document and patch schemas, compatibility policy, structured errors, and shared CLI/browser editing semantics are documented in [the document contract](docs/document-contract.md). Portable TypeScript types are exported by `@draw/diagram-core/contract`; the renderer re-exports its existing document types for compatibility.
 

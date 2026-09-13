@@ -6,10 +6,7 @@
     "build": "cargo check --locked -p draw-diagram-core",
     "check": "cargo check --locked -p draw-diagram-core",
     "lint": "cargo clippy --locked -p draw-diagram-core -- -D warnings",
-    "test": "cargo test --locked -p draw-diagram-core",
-    "bench:native": "cargo bench --locked -p draw-diagram-core --bench native_performance --",
-    "bench:compare": "node scripts/compare-performance.mjs",
-    "test:bench": "node --test scripts/*.test.mjs"
+    "test": "cargo test --locked -p draw-diagram-core"
   },
   "exports": {
     "./contract": "./contract.ts"

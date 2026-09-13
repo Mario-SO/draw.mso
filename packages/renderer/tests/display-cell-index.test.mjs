@@ -24,3 +24,19 @@ test('replaces previous rows and handles empty and negative viewports', () => {
   index.forEach(-10, -10, -1, -1, cell => visible.push(cell));
   assert.deepEqual(visible.map(cell => cell.ch), ['new']);
 });
+
+test('immutable incremental row snapshots can be swapped and restored', () => {
+  const index = new DisplayCellIndex();
+  const firstRow = [{ x: 2, y: 1, ch: 'A' }];
+  const accepted = new Map([[1, firstRow], [4, [{ x: 0, y: 4, ch: '😀' }]]]);
+  const preview = new Map(accepted);
+  preview.set(1, [{ x: 3, y: 1, ch: 'B' }]);
+  preview.delete(4);
+  const collect = () => { const cells = []; index.forEach(-5, -5, 10, 10, cell => cells.push(cell)); return cells; };
+  index.updateRows(accepted);
+  assert.deepEqual(collect(), [...firstRow, { x: 0, y: 4, ch: '😀' }]);
+  index.updateRows(preview);
+  assert.deepEqual(collect(), [{ x: 3, y: 1, ch: 'B' }]);
+  index.updateRows(accepted);
+  assert.deepEqual(collect(), [...firstRow, { x: 0, y: 4, ch: '😀' }]);
+});

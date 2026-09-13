@@ -20,3 +20,14 @@ benchmark-results/
 *.swp
 *.swo
 *~
+
+# Local performance tooling, fixtures, and measurement records
+/benchmark-tools/
+/apps/web/performance/
+/apps/web/playwright.performance.config.ts
+/crates/diagram-core/benches/
+/crates/diagram-core/scripts/compare-performance*.mjs
+/fixtures/benchmarks/
+/docs/performance/
+/docs/native-performance.md
+/docs/browser-performance.md
