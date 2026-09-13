@@ -762,7 +762,7 @@ export class Editor {
         if (this.drag === drag && this.previewRevision === revision) {
           // Keep the pointer preview for the whole gesture. Clearing it here
           // alternates the plain preview and selected scene on every worker reply.
-          this.renderer.setScene(result.scene, doc);
+          this.renderer.setScene(result.scene, doc); this.renderer.setPreview(null); this.renderer.setPreviews([]);
         }
       } catch { /* Invalid out-of-bounds previews are rejected at commit as well. */ }
       finally { this.previewBusy = false; if (this.drag === drag && this.previewRevision !== revision) this.schedulePreview(); }
