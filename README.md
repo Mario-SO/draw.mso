@@ -2,6 +2,12 @@
 
 A local-first diagram editor for developers. Draw system diagrams on a character grid, then copy them into documentation or export SVG. React handles the interface; a Rust engine owns validated documents, undo history, connector geometry, and text composition. The same engine powers the CLI.
 
+<img width="1280" height="720" alt="image" src="https://github.com/user-attachments/assets/d30d02d1-b607-4468-a2ee-d1ded6251981" />
+<img width="1280" height="720" alt="image" src="https://github.com/user-attachments/assets/0ea524d7-f39a-417d-b155-dbd7880390f9" />
+<img width="3482" height="2160" alt="CleanShot 2026-09-13 at 17 44 35@2x" src="https://github.com/user-attachments/assets/e149e41f-aa42-432d-907a-6e4144b82420" />
+<img width="3482" height="2160" alt="CleanShot 2026-09-13 at 17 45 05@2x" src="https://github.com/user-attachments/assets/bf82d424-fbab-4b5c-948d-442d5603d9b9" />
+
+
 ## Start
 
 Requirements: Node.js 22.12+ (tested with 26.8.2), pnpm 11.19.0, Rust 1.96.0, and wasm-pack 0.15.0.
