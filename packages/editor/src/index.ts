@@ -760,7 +760,9 @@ export class Editor {
       try {
         const result = await this.request<Pick<EngineResult, 'scene'>>('previewPatch', { updatedNodes: [...changed.values()] });
         if (this.drag === drag && this.previewRevision === revision) {
-          this.renderer.setScene(result.scene, doc); this.renderer.setPreview(null); this.renderer.setPreviews([]);
+          // Keep the pointer preview for the whole gesture. Clearing it here
+          // alternates the plain preview and selected scene on every worker reply.
+          this.renderer.setScene(result.scene, doc);
         }
       } catch { /* Invalid out-of-bounds previews are rejected at commit as well. */ }
       finally { this.previewBusy = false; if (this.drag === drag && this.previewRevision !== revision) this.schedulePreview(); }

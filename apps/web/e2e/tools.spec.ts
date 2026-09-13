@@ -274,9 +274,11 @@ test("Fill updates the box background without creating editable text", async ({ 
   await page.getByRole('button', { name: 'Undo', exact: true }).click()
   expect((await saveDocument(page)).document.nodes).toEqual(before.nodes)
   await page.getByRole('button', { name: 'Redo', exact: true }).click()
+  await expect(page.getByLabel('Fill character', { exact: true })).toHaveValue('-')
   // Filling an already filled area replaces the background rather than adding text.
   await page.getByLabel('Character', { exact: true }).fill('.')
   await page.mouse.click(start.x + 6 * 9, start.y + 4 * 18)
+  await expect(page.getByLabel('Fill character', { exact: true })).toHaveValue('.')
   expect((await saveDocument(page)).document.nodes).toEqual([{ ...before.nodes[0], fill: '.' }])
   await page.mouse.click(start.x - 100, start.y - 80)
   expect((await saveDocument(page)).document.nodes).toEqual([{ ...before.nodes[0], fill: '.' }])
