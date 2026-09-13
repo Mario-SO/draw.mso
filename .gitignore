@@ -28,6 +28,9 @@ benchmark-results/
 /crates/diagram-core/benches/
 /crates/diagram-core/scripts/compare-performance*.mjs
 /fixtures/benchmarks/
-/docs/performance/
-/docs/native-performance.md
-/docs/browser-performance.md
+
+# Documentation stays local
+/docs/
+*.md
+*.mdx
+*.rst

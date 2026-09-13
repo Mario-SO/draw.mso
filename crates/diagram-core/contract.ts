@@ -1,5 +1,5 @@
 /** Portable wire types. Rust validation remains authoritative.
- * See schemas/ and docs/document-contract.md for constraints and compatibility.
+ * See schemas/ for document and patch structure; Rust validates document-wide constraints.
  * No browser or renderer dependencies belong in this module.
  */
 export const DOCUMENT_VERSION = 3 as const;
