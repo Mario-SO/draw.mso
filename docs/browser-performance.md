@@ -11,6 +11,8 @@ pnpm --filter @draw/web bench:browser
 
 The default run performs two warmups and seven recorded repetitions against both `fixtures/benchmarks/medium.mso` and `fixtures/benchmarks/large.mso`, which makes scaling visible. Each repetition uses a fresh isolated browser context. Events within one repetition are reduced to a median, then the report gives the median and p95 across repetitions. Override the defaults with `DRAW_BENCH_WARMUPS`, `DRAW_BENCH_SAMPLES`, or `DRAW_BENCH_FIXTURE` (one path or comma-separated paths, absolute or relative to the repository root).
 
+Response byte accounting remains enabled by default to preserve the existing benchmark behavior. Set `DRAW_BENCH_RESPONSE_BYTES=0` to omit it when measuring transport latency without the extra JSON encoding and UTF-8 counting pass; use `1` to enable it explicitly. Enabled runs record `worker.responseJsonBytes` and the time spent measuring it as `worker.responseByteAccounting`. This time is included in `editor.workerRoundTrip` and excluded from `worker.operation`. Reports record the mode and metric relationship in `methodology.responseByteAccounting`, and the comparison command warns when runs use different methodology. Do not compare on/off timing results directly.
+
 Results are written to the ignored `benchmark-results/browser-latest.json`. The report includes the browser version, operating system, CPU, logical CPU count, installed memory, Git commit, dirty-worktree flag, fixture size, and methodology. Keep the machine idle, use the same power mode, and compare results from the same browser and hardware.
 
 Set `DRAW_BENCH_TRACE=1` to also save a Chromium CPU profile for the first measured repetition. Open DevTools, choose the Performance panel's load-profile action, and select `benchmark-results/browser.cpuprofile`.
@@ -23,7 +25,7 @@ The harness closes the document sidebar and reads the actual renderer transform 
 
 The report records viewport, device pixel ratio, production mode, and whether profiling was enabled. Profiled runs write `browser-profiled.json` instead of replacing `browser-latest.json`. The CPU profile covers the main browser thread; worker execution is represented by worker timing stages and the separate native profile, not that main-thread CPU profile.
 
-Byte accounting performs extra JSON encoding during instrumented runs, so worker round-trip measurements include that benchmark overhead. Compare like-for-like instrumented runs. Native operation timings and narrower worker stages help separate actual engine work from reporting costs.
+When enabled, byte accounting performs extra JSON encoding during instrumented runs, so worker round-trip measurements include that measured benchmark overhead. Use `worker.responseByteAccounting` to quantify it, and compare runs only when their recorded accounting mode matches. Native operation timings and narrower worker stages help separate actual engine work from reporting costs.
 
 After optimization, drag requests are named `previewPatch`; `preview` now measures import validation only. Do not directly compare the old mixed `preview` aggregate with the new import-only metric. Main-thread JSON decoding is recorded as `editor.engineOutputParse` and remains included in `editor.workerRoundTrip`. Responses contain serialized display JSON, excluding terminal cells; their byte metric describes the new wire format.
 
@@ -46,6 +48,16 @@ accepted patch. Playwright and browser scheduling add overhead to this cadence;
 it is not a hardware input sampling rate. Medium and large fixtures use a fixed
 camera at zoom 1. The first node has a singleton group ID, so these gestures exercise a single
 node and its connected routing. Multi-node group movement needs its own scenario.
+
+Set `DRAW_BENCH_SCENARIOS` to a comma-separated subset of `sustained-medium`,
+`sustained-large`, `culling-0`, `culling-300`, and `culling-1200` for a focused
+diagnostic run. For example, `DRAW_BENCH_SCENARIOS=sustained-large` isolates the
+large editing workload for paired response-byte-accounting runs. Names must be
+exact and unique; empty or unknown entries fail before browser contexts are
+created. Selected scenarios retain the suite's canonical order. When the variable
+is unset, the suite runs all five workloads as before. Fixture metadata contains
+only the scenarios selected for that report, so focused reports must be compared
+with reports using the same selection.
 
 The culling scenarios retain the small fixture's eight visible nodes and nine
 edges, then add 0, 300, or 1,200 disconnected nodes far outside the viewport.

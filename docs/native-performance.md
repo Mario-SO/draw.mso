@@ -31,3 +31,44 @@ pnpm --filter @draw/diagram-core bench:native -- --fixture large --operation sce
 ```
 
 On macOS, start that command and attach Instruments' Time Profiler to the printed PID, or run `sample PID 10 -file /tmp/draw-native.sample`. On Linux, wrap the command with `perf record --call-graph dwarf -- pnpm --filter @draw/diagram-core bench:native -- --fixture large --operation scene --profile-seconds 30`, then inspect it with `perf report`. Profiling output is diagnostic and is separate from the latency baseline.
+
+## Warm browser-path stages
+
+Three native cases isolate the browser display path without browser timers or
+worker transport:
+
+- `display-warm`: create an engine, compose once to prime its derived caches,
+  apply the representative one-node patch outside the timer, then time display
+  composition alone.
+- `display-serialize`: perform that same setup and composition outside the timer,
+  then time serialization of the borrowed display projection only.
+- `preview-warm`: prime the caches, then time the actual temporary patch API,
+  including document cloning, validation, display composition and serialization.
+
+For example:
+
+```sh
+pnpm --filter @draw/diagram-core bench:native -- --fixture large --operation display-warm
+pnpm --filter @draw/diagram-core bench:native -- --fixture large --operation display-serialize
+pnpm --filter @draw/diagram-core bench:native -- --fixture large --operation preview-warm
+```
+
+Every sample starts from a fresh engine whose caches are explicitly primed; the
+cases measure one changed node, not a growing editing history. Results remain
+alive until after the timer is read. Native timings cannot be substituted for
+WASM or browser round-trip timings.
+
+Portable fixture output stays version 1. The harness now migrates a copy through
+`Engine::from_document` before direct validation/editing measurements, matching
+the current engine's accepted-document contract. Load measurements still receive
+the original version-1 JSON and include migration. This also fixes the old
+harness failure caused by directly validating version-1 fixture objects against
+the current document version. Fixture byte counts describe the portable input.
+
+For a warm preview CPU profile, use `--operation preview-warm --profile-seconds 30`.
+That profiling mode creates and primes one engine, then alternates two nearby
+one-node preview patches against it. This retains derived caches as the live
+editor does and avoids spending most samples on repeated cold-engine setup.
+The report's `profileMode` identifies this behavior. The profiler includes output
+destruction and runs as fast as possible; it is diagnostic and separate from the
+latency samples above. Other profile operations retain the existing setup loop.

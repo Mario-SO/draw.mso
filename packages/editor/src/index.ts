@@ -3,7 +3,7 @@ import { CanvasRenderer, SpatialIndex, CELL_WIDTH, CELL_HEIGHT, type DiagramNode
 import { sampleDocument } from './sample';
 import { diffDocument } from './document-patch';
 import { LocalDocuments, type DocumentSummary } from './local-documents';
-import { benchmarkEnabled, recordPerformance, type BenchmarkApi } from './performance';
+import { benchmarkEnabled, recordPerformance, responseByteAccountingEnabled, type BenchmarkApi } from './performance';
 import { svgToPng } from './png-export';
 import { createSnapTargetCache, refreshSnapTargetCache, snapMovement, type SnapTargetCache } from './snap-targets';
 import type { EngineOperation, EnginePayload, EngineResult, EngineWorkerResponse } from './worker-protocol';
@@ -214,7 +214,7 @@ export class Editor {
         recordPerformance({ name: 'editor.requestJsonBytes', value: encoded.byteLength, unit: 'bytes', detail: { command: type } });
       }
       this.requests.set(id, { resolve: resolve as (value: unknown) => void, reject, startedAt: performance.now(), type });
-      this.worker.postMessage({ id, type, payload, benchmark: benchmarkEnabled() });
+      this.worker.postMessage({ id, type, payload, benchmark: benchmarkEnabled(), responseByteAccounting: responseByteAccountingEnabled() });
     });
   }
   private accept(result: EngineResult) {

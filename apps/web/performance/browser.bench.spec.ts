@@ -1,6 +1,6 @@
 import { test } from '@playwright/test';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { cpus, hostname, platform, release, totalmem } from 'node:os';
+import { cpus, platform, release, totalmem } from 'node:os';
 import { basename, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
@@ -15,6 +15,14 @@ function integerSetting(name: string, fallback: number, minimum: number) {
 const warmups = integerSetting('DRAW_BENCH_WARMUPS', 2, 0);
 const repetitions = integerSetting('DRAW_BENCH_SAMPLES', 7, 1);
 const tracing = process.env.DRAW_BENCH_TRACE === '1';
+function booleanSetting(name: string, fallback: boolean) {
+  const value = process.env[name];
+  if (value === undefined) return fallback;
+  if (value === '1') return true;
+  if (value === '0') return false;
+  throw new Error(`${name} must be 0 or 1`);
+}
+const responseByteAccounting = booleanSetting('DRAW_BENCH_RESPONSE_BYTES', true);
 
 function percentile(values: number[], fraction: number) {
   const sorted = [...values].sort((a, b) => a - b);
@@ -37,11 +45,12 @@ test('production browser baseline', async ({ browser, browserName }) => {
     const page = await context.newPage();
     const cdp = tracing && browserName === 'chromium' && fixturePath === fixturePaths[0] && index === warmups ? await context.newCDPSession(page) : undefined;
     if (cdp) { await cdp.send('Profiler.enable'); await cdp.send('Profiler.start'); }
-    await page.addInitScript(() => {
-      const target = window as Window & { __DRAW_BENCHMARK_ENABLED__?: boolean; __DRAW_BENCHMARK_SAMPLES__?: unknown[] };
+    await page.addInitScript(enabled => {
+      const target = window as Window & { __DRAW_BENCHMARK_ENABLED__?: boolean; __DRAW_BENCHMARK_RESPONSE_BYTES__?: boolean; __DRAW_BENCHMARK_SAMPLES__?: unknown[] };
       target.__DRAW_BENCHMARK_ENABLED__ = true;
+      target.__DRAW_BENCHMARK_RESPONSE_BYTES__ = enabled;
       target.__DRAW_BENCHMARK_SAMPLES__ = [];
-    });
+    }, responseByteAccounting);
     const navigationAt = performance.now();
     await page.goto('/');
     await page.getByText('Ready · local workspace', { exact: false }).waitFor();
@@ -116,10 +125,21 @@ test('production browser baseline', async ({ browser, browserName }) => {
     suite: 'diagram-browser',
     createdAt: new Date().toISOString(),
     fixtures,
-    methodology: { warmups, repetitions, aggregation: 'median per run, then median and p95 across runs' },
+    methodology: {
+      warmups,
+      repetitions,
+      aggregation: 'median per run, then median and p95 across runs',
+      responseByteAccounting: {
+        enabled: responseByteAccounting,
+        byteMetric: 'worker.responseJsonBytes',
+        timingMetric: 'worker.responseByteAccounting',
+        includedInWorkerRoundTrip: true,
+        includedInWorkerOperation: false,
+      },
+    },
     metadata: {
       browser: { name: browserName, version: browserVersion },
-      hardware: { hostname: hostname(), cpu: cpus()[0]?.model ?? 'unknown', logicalCpus: cpus().length, totalMemoryBytes: totalmem() },
+      hardware: { cpu: cpus()[0]?.model ?? 'unknown', logicalCpus: cpus().length, totalMemoryBytes: totalmem() },
       os: { platform: platform(), release: release() },
       git: { commit: git(['rev-parse', 'HEAD']), dirty: Boolean(git(['status', '--porcelain'])) },
       runtime: { ...runtime, build: 'production', profileEnabled: tracing },

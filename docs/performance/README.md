@@ -1,6 +1,6 @@
 # Performance baselines
 
-The benchmark suite measures the current implementation. Checked-in reports preserve both the initial baseline and the optimized build. Run native and browser measurements separately, on an otherwise idle machine, after builds and verification finish. Turbo does not cache benchmark results.
+The benchmark suite measures the current implementation. Checked-in reports preserve both the initial baseline and the optimized build. Run native and browser measurements separately, on an otherwise idle machine, after builds and verification finish. Turbo does not cache benchmark results. Public reports omit hostnames; native reports record only the executable filename, keeping personal filesystem paths out of published evidence.
 
 ```sh
 pnpm bench:native
@@ -17,7 +17,7 @@ pnpm bench:compare -- docs/performance/baseline-native.json benchmark-results/na
 
 The comparison prints JSON with absolute values, percentage changes, and warnings for mismatched environments or missing metrics. A zero baseline produces a null percentage. It does not enforce a regression budget.
 
-Read the [initial measured findings](findings.md) and [optimization results](optimization.md) for the before/after evidence. The [sustained editing and culling experiment](sustained-editing.md) adds event-tail measurements and fixed-camera offscreen scaling.
+Read the [initial measured findings](findings.md) and [optimization results](optimization.md) for the before/after evidence. The [sustained editing and culling experiment](sustained-editing.md) adds event-tail measurements and fixed-camera offscreen scaling. The [routing selection experiment](routing-selection.md) separates measurement overhead and reduces repeated obstacle-selection work.
 
 ## Interpreting results
 

@@ -8,7 +8,14 @@ export interface WorkerError { message: string; code?: string; details?: string 
 export interface WorkerPerformanceSample {
   name: string; value: number; unit: 'ms' | 'bytes'; detail?: Record<string, string>;
 }
-export interface EngineWorkerRequest { id: number; type: EngineOperation; payload?: EnginePayload; benchmark: boolean }
+export interface EngineWorkerRequest {
+  id: number;
+  type: EngineOperation;
+  payload?: EnginePayload;
+  benchmark: boolean;
+  /** Defaults to enabled for benchmark requests that predate this toggle. */
+  responseByteAccounting?: boolean;
+}
 /** Keep large scenes serialized across the worker boundary: parsing once on the
  * receiving thread avoids cloning tens of thousands of tiny cell objects. */
 export interface EngineWireResult {

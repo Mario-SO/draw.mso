@@ -1,0 +1,429 @@
+{
+  "schemaVersion": 1,
+  "suite": "diagram-browser-stress",
+  "createdAt": "2026-09-13T18:18:08.741Z",
+  "fixtures": [
+    {
+      "kind": "sustained",
+      "name": "sustained-large",
+      "fixture": "large",
+      "path": "fixtures/benchmarks/large.mso",
+      "offscreen": 0,
+      "nodes": 300,
+      "edges": 450,
+      "sha256": "7526131d58da963bc4548c0efa72020787395fbd8769c8a0de22aec9daabede4"
+    }
+  ],
+  "methodology": {
+    "warmups": 2,
+    "repetitions": 7,
+    "gestures": 10,
+    "pointerSteps": 24,
+    "pointerDelayMs": 16,
+    "cullingSteps": 120,
+    "aggregation": "event median/p95/max/count per run, then median and p95 across runs",
+    "responseByteAccounting": {
+      "enabled": false,
+      "byteMetric": "worker.responseJsonBytes",
+      "timingMetric": "worker.responseByteAccounting",
+      "includedInWorkerRoundTrip": true,
+      "includedInWorkerOperation": false
+    }
+  },
+  "metadata": {
+    "browser": {
+      "name": "chromium",
+      "version": "153.0.8010.12"
+    },
+    "hardware": {
+      "cpu": "Apple M4 Pro",
+      "logicalCpus": 12,
+      "totalMemoryBytes": 51539607552
+    },
+    "os": {
+      "platform": "darwin",
+      "release": "25.6.0"
+    },
+    "git": {
+      "commit": "e52f659d9b6764874622221e2425451db9904269",
+      "dirty": true
+    },
+    "runtime": {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "devicePixelRatio": 1,
+      "build": "production",
+      "profileEnabled": false
+    }
+  },
+  "metrics": {
+    "browser.activeFrameInterval|count|scenario=sustained-large,statistic=eventCount": {
+      "median": 471,
+      "p95": 472,
+      "samples": 7
+    },
+    "browser.activeFrameInterval|ms|scenario=sustained-large,statistic=eventMax": {
+      "median": 16.800000000000182,
+      "p95": 16.80000000000109,
+      "samples": 7
+    },
+    "browser.activeFrameInterval|ms|scenario=sustained-large,statistic=eventMedian": {
+      "median": 16.699999999999818,
+      "p95": 16.699999999999818,
+      "samples": 7
+    },
+    "browser.activeFrameInterval|ms|scenario=sustained-large,statistic=eventP95": {
+      "median": 16.733999999999924,
+      "p95": 16.799999999999272,
+      "samples": 7
+    },
+    "editor.engineOutputParse|count|command=patch,scenario=sustained-large,statistic=eventCount": {
+      "median": 10,
+      "p95": 10,
+      "samples": 7
+    },
+    "editor.engineOutputParse|count|command=previewPatch,scenario=sustained-large,statistic=eventCount": {
+      "median": 120,
+      "p95": 120,
+      "samples": 7
+    },
+    "editor.engineOutputParse|ms|command=patch,scenario=sustained-large,statistic=eventMax": {
+      "median": 1.1000000014901161,
+      "p95": 1.300000000745058,
+      "samples": 7
+    },
+    "editor.engineOutputParse|ms|command=patch,scenario=sustained-large,statistic=eventMedian": {
+      "median": 1,
+      "p95": 1.1000000014901161,
+      "samples": 7
+    },
+    "editor.engineOutputParse|ms|command=patch,scenario=sustained-large,statistic=eventP95": {
+      "median": 1.1000000014901161,
+      "p95": 1.300000000745058,
+      "samples": 7
+    },
+    "editor.engineOutputParse|ms|command=previewPatch,scenario=sustained-large,statistic=eventMax": {
+      "median": 1.1000000014901161,
+      "p95": 1.2000000029802322,
+      "samples": 7
+    },
+    "editor.engineOutputParse|ms|command=previewPatch,scenario=sustained-large,statistic=eventMedian": {
+      "median": 0.8999999985098839,
+      "p95": 0.8999999985098839,
+      "samples": 7
+    },
+    "editor.engineOutputParse|ms|command=previewPatch,scenario=sustained-large,statistic=eventP95": {
+      "median": 1,
+      "p95": 1,
+      "samples": 7
+    },
+    "editor.requestJsonBytes|bytes|command=patch,scenario=sustained-large,statistic=eventMax": {
+      "median": 238,
+      "p95": 238,
+      "samples": 7
+    },
+    "editor.requestJsonBytes|bytes|command=patch,scenario=sustained-large,statistic=eventMedian": {
+      "median": 238,
+      "p95": 238,
+      "samples": 7
+    },
+    "editor.requestJsonBytes|bytes|command=patch,scenario=sustained-large,statistic=eventP95": {
+      "median": 238,
+      "p95": 238,
+      "samples": 7
+    },
+    "editor.requestJsonBytes|bytes|command=previewPatch,scenario=sustained-large,statistic=eventMax": {
+      "median": 148,
+      "p95": 148,
+      "samples": 7
+    },
+    "editor.requestJsonBytes|bytes|command=previewPatch,scenario=sustained-large,statistic=eventMedian": {
+      "median": 148,
+      "p95": 148,
+      "samples": 7
+    },
+    "editor.requestJsonBytes|bytes|command=previewPatch,scenario=sustained-large,statistic=eventP95": {
+      "median": 148,
+      "p95": 148,
+      "samples": 7
+    },
+    "editor.requestJsonBytes|count|command=patch,scenario=sustained-large,statistic=eventCount": {
+      "median": 10,
+      "p95": 10,
+      "samples": 7
+    },
+    "editor.requestJsonBytes|count|command=previewPatch,scenario=sustained-large,statistic=eventCount": {
+      "median": 120,
+      "p95": 120,
+      "samples": 7
+    },
+    "editor.workerRoundTrip|count|command=patch,scenario=sustained-large,statistic=eventCount": {
+      "median": 10,
+      "p95": 10,
+      "samples": 7
+    },
+    "editor.workerRoundTrip|count|command=previewPatch,scenario=sustained-large,statistic=eventCount": {
+      "median": 120,
+      "p95": 120,
+      "samples": 7
+    },
+    "editor.workerRoundTrip|ms|command=patch,scenario=sustained-large,statistic=eventMax": {
+      "median": 15.699999999254942,
+      "p95": 16.200000002980232,
+      "samples": 7
+    },
+    "editor.workerRoundTrip|ms|command=patch,scenario=sustained-large,statistic=eventMedian": {
+      "median": 12.899999998509884,
+      "p95": 13.5,
+      "samples": 7
+    },
+    "editor.workerRoundTrip|ms|command=patch,scenario=sustained-large,statistic=eventP95": {
+      "median": 15.699999999254942,
+      "p95": 16.200000002980232,
+      "samples": 7
+    },
+    "editor.workerRoundTrip|ms|command=previewPatch,scenario=sustained-large,statistic=eventMax": {
+      "median": 24.199999999254942,
+      "p95": 25,
+      "samples": 7
+    },
+    "editor.workerRoundTrip|ms|command=previewPatch,scenario=sustained-large,statistic=eventMedian": {
+      "median": 7.199999999254942,
+      "p95": 7.300000000745058,
+      "samples": 7
+    },
+    "editor.workerRoundTrip|ms|command=previewPatch,scenario=sustained-large,statistic=eventP95": {
+      "median": 9,
+      "p95": 9.300000000745058,
+      "samples": 7
+    },
+    "renderer.paint|count|scenario=sustained-large,statistic=eventCount": {
+      "median": 262,
+      "p95": 263,
+      "samples": 7
+    },
+    "renderer.paint|ms|scenario=sustained-large,statistic=eventMax": {
+      "median": 3.699999999254942,
+      "p95": 4.100000001490116,
+      "samples": 7
+    },
+    "renderer.paint|ms|scenario=sustained-large,statistic=eventMedian": {
+      "median": 1.8999999985098839,
+      "p95": 1.8999999985098839,
+      "samples": 7
+    },
+    "renderer.paint|ms|scenario=sustained-large,statistic=eventP95": {
+      "median": 2,
+      "p95": 2.100000001490116,
+      "samples": 7
+    },
+    "worker.engineOutput|count|command=patch,scenario=sustained-large,statistic=eventCount": {
+      "median": 10,
+      "p95": 10,
+      "samples": 7
+    },
+    "worker.engineOutput|count|command=previewPatch,scenario=sustained-large,statistic=eventCount": {
+      "median": 120,
+      "p95": 120,
+      "samples": 7
+    },
+    "worker.engineOutput|ms|command=patch,scenario=sustained-large,statistic=eventMax": {
+      "median": 5.900000002235174,
+      "p95": 6,
+      "samples": 7
+    },
+    "worker.engineOutput|ms|command=patch,scenario=sustained-large,statistic=eventMedian": {
+      "median": 5.699999999254942,
+      "p95": 5.800000000745058,
+      "samples": 7
+    },
+    "worker.engineOutput|ms|command=patch,scenario=sustained-large,statistic=eventP95": {
+      "median": 5.900000002235174,
+      "p95": 6,
+      "samples": 7
+    },
+    "worker.engineOutput|ms|command=previewPatch,scenario=sustained-large,statistic=eventMax": {
+      "median": 18.300000000745058,
+      "p95": 18.800000000745058,
+      "samples": 7
+    },
+    "worker.engineOutput|ms|command=previewPatch,scenario=sustained-large,statistic=eventMedian": {
+      "median": 6.199999999254942,
+      "p95": 6.300000000745058,
+      "samples": 7
+    },
+    "worker.engineOutput|ms|command=previewPatch,scenario=sustained-large,statistic=eventP95": {
+      "median": 7.900000002235174,
+      "p95": 8,
+      "samples": 7
+    },
+    "worker.inputJsonEncode|count|command=patch,scenario=sustained-large,statistic=eventCount": {
+      "median": 10,
+      "p95": 10,
+      "samples": 7
+    },
+    "worker.inputJsonEncode|count|command=previewPatch,scenario=sustained-large,statistic=eventCount": {
+      "median": 120,
+      "p95": 120,
+      "samples": 7
+    },
+    "worker.inputJsonEncode|ms|command=patch,scenario=sustained-large,statistic=eventMax": {
+      "median": 0,
+      "p95": 0.09999999776482582,
+      "samples": 7
+    },
+    "worker.inputJsonEncode|ms|command=patch,scenario=sustained-large,statistic=eventMedian": {
+      "median": 0,
+      "p95": 0,
+      "samples": 7
+    },
+    "worker.inputJsonEncode|ms|command=patch,scenario=sustained-large,statistic=eventP95": {
+      "median": 0,
+      "p95": 0.09999999776482582,
+      "samples": 7
+    },
+    "worker.inputJsonEncode|ms|command=previewPatch,scenario=sustained-large,statistic=eventMax": {
+      "median": 0.10000000149011612,
+      "p95": 0.10000000149011612,
+      "samples": 7
+    },
+    "worker.inputJsonEncode|ms|command=previewPatch,scenario=sustained-large,statistic=eventMedian": {
+      "median": 0,
+      "p95": 0,
+      "samples": 7
+    },
+    "worker.inputJsonEncode|ms|command=previewPatch,scenario=sustained-large,statistic=eventP95": {
+      "median": 0,
+      "p95": 0,
+      "samples": 7
+    },
+    "worker.operation|count|command=patch,scenario=sustained-large,statistic=eventCount": {
+      "median": 10,
+      "p95": 10,
+      "samples": 7
+    },
+    "worker.operation|count|command=previewPatch,scenario=sustained-large,statistic=eventCount": {
+      "median": 120,
+      "p95": 120,
+      "samples": 7
+    },
+    "worker.operation|ms|command=patch,scenario=sustained-large,statistic=eventMax": {
+      "median": 6.100000001490116,
+      "p95": 6.200000002980232,
+      "samples": 7
+    },
+    "worker.operation|ms|command=patch,scenario=sustained-large,statistic=eventMedian": {
+      "median": 5.900000002235174,
+      "p95": 6.099999997764826,
+      "samples": 7
+    },
+    "worker.operation|ms|command=patch,scenario=sustained-large,statistic=eventP95": {
+      "median": 6.100000001490116,
+      "p95": 6.200000002980232,
+      "samples": 7
+    },
+    "worker.operation|ms|command=previewPatch,scenario=sustained-large,statistic=eventMax": {
+      "median": 18.300000000745058,
+      "p95": 18.800000000745058,
+      "samples": 7
+    },
+    "worker.operation|ms|command=previewPatch,scenario=sustained-large,statistic=eventMedian": {
+      "median": 6.199999999254942,
+      "p95": 6.300000000745058,
+      "samples": 7
+    },
+    "worker.operation|ms|command=previewPatch,scenario=sustained-large,statistic=eventP95": {
+      "median": 7.900000002235174,
+      "p95": 8,
+      "samples": 7
+    },
+    "worker.queueWait|count|command=patch,scenario=sustained-large,statistic=eventCount": {
+      "median": 10,
+      "p95": 10,
+      "samples": 7
+    },
+    "worker.queueWait|count|command=previewPatch,scenario=sustained-large,statistic=eventCount": {
+      "median": 120,
+      "p95": 120,
+      "samples": 7
+    },
+    "worker.queueWait|ms|command=patch,scenario=sustained-large,statistic=eventMax": {
+      "median": 0.09999999776482582,
+      "p95": 0.10000000149011612,
+      "samples": 7
+    },
+    "worker.queueWait|ms|command=patch,scenario=sustained-large,statistic=eventMedian": {
+      "median": 0,
+      "p95": 0,
+      "samples": 7
+    },
+    "worker.queueWait|ms|command=patch,scenario=sustained-large,statistic=eventP95": {
+      "median": 0.09999999776482582,
+      "p95": 0.10000000149011612,
+      "samples": 7
+    },
+    "worker.queueWait|ms|command=previewPatch,scenario=sustained-large,statistic=eventMax": {
+      "median": 0.10000000149011612,
+      "p95": 0.10000000149011612,
+      "samples": 7
+    },
+    "worker.queueWait|ms|command=previewPatch,scenario=sustained-large,statistic=eventMedian": {
+      "median": 0,
+      "p95": 0,
+      "samples": 7
+    },
+    "worker.queueWait|ms|command=previewPatch,scenario=sustained-large,statistic=eventP95": {
+      "median": 0,
+      "p95": 0.09999999776482582,
+      "samples": 7
+    },
+    "worker.wasmReadyWait|count|command=patch,scenario=sustained-large,statistic=eventCount": {
+      "median": 10,
+      "p95": 10,
+      "samples": 7
+    },
+    "worker.wasmReadyWait|count|command=previewPatch,scenario=sustained-large,statistic=eventCount": {
+      "median": 120,
+      "p95": 120,
+      "samples": 7
+    },
+    "worker.wasmReadyWait|ms|command=patch,scenario=sustained-large,statistic=eventMax": {
+      "median": 0,
+      "p95": 0,
+      "samples": 7
+    },
+    "worker.wasmReadyWait|ms|command=patch,scenario=sustained-large,statistic=eventMedian": {
+      "median": 0,
+      "p95": 0,
+      "samples": 7
+    },
+    "worker.wasmReadyWait|ms|command=patch,scenario=sustained-large,statistic=eventP95": {
+      "median": 0,
+      "p95": 0,
+      "samples": 7
+    },
+    "worker.wasmReadyWait|ms|command=previewPatch,scenario=sustained-large,statistic=eventMax": {
+      "median": 0.09999999776482582,
+      "p95": 0.10000000149011612,
+      "samples": 7
+    },
+    "worker.wasmReadyWait|ms|command=previewPatch,scenario=sustained-large,statistic=eventMedian": {
+      "median": 0,
+      "p95": 0,
+      "samples": 7
+    },
+    "worker.wasmReadyWait|ms|command=previewPatch,scenario=sustained-large,statistic=eventP95": {
+      "median": 0,
+      "p95": 0,
+      "samples": 7
+    }
+  },
+  "rawRunsAttachment": {
+    "path": "routing-accounting-off.raw.json.gz",
+    "encoding": "gzip",
+    "sha256": "179050c2c9fa475752a614a18811ba48b501ef58efcc7cd155f6eaa278af853e",
+    "runs": 7
+  }
+}

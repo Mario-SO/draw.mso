@@ -3,7 +3,7 @@ import { mkdir, readFile } from "node:fs/promises"
 
 const canvas = (page: Page) => page.getByRole("application", { name: /diagram canvas/i })
 const documentHeading = (page: Page) => page.getByRole("heading", { level: 1 })
-const screenshotDirectory = "/Users/mario/Documents/Codex/2026-09-13/i-wo/work"
+const screenshotDirectory = "test-results/screenshots"
 
 async function setDocumentsOpen(page: Page, open: boolean) {
   const toggle = page.getByRole("button", { name: "Toggle documents", exact: true })

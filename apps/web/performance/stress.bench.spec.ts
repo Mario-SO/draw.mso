@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 
 type PerformanceSample = { name: string; value: number; unit: 'ms' | 'bytes' | 'count'; detail?: Record<string, string | number | boolean> };
 type BenchmarkApi = { firstNodeCenter(): { x: number; y: number } | null; setCamera(camera: { x: number; y: number; zoom: number }): void };
-type BenchWindow = Window & { __DRAW_BENCHMARK_ENABLED__?: boolean; __DRAW_BENCHMARK_API__?: BenchmarkApi; __DRAW_BENCHMARK_SAMPLES__?: PerformanceSample[]; __DRAW_STOP_FRAME_PROBE__?: () => void };
+type BenchWindow = Window & { __DRAW_BENCHMARK_ENABLED__?: boolean; __DRAW_BENCHMARK_RESPONSE_BYTES__?: boolean; __DRAW_BENCHMARK_API__?: BenchmarkApi; __DRAW_BENCHMARK_SAMPLES__?: PerformanceSample[]; __DRAW_STOP_FRAME_PROBE__?: () => void };
 type FixtureNode = { id: string; x: number; y: number; groupId?: string } & Record<string, unknown>;
 type FixtureDocument = { nodes: FixtureNode[]; edges: unknown[] } & Record<string, unknown>;
 type Scenario = {
@@ -26,7 +26,28 @@ function setting(name: string, fallback: number, minimum: number) {
 const repetitions = setting('DRAW_BENCH_SAMPLES', 7, 1);
 const warmups = setting('DRAW_BENCH_WARMUPS', 2, 0);
 const gestures = setting('DRAW_BENCH_GESTURES', 10, 2);
+const selectedScenarioNames = process.env.DRAW_BENCH_SCENARIOS;
+function booleanSetting(name: string, fallback: boolean) {
+  const value = process.env[name];
+  if (value === undefined) return fallback;
+  if (value === '1') return true;
+  if (value === '0') return false;
+  throw new Error(`${name} must be 0 or 1`);
+}
+const responseByteAccounting = booleanSetting('DRAW_BENCH_RESPONSE_BYTES', true);
 const percentile = (values: number[], fraction: number) => [...values].sort((a, b) => a - b)[Math.min(values.length - 1, Math.ceil(values.length * fraction) - 1)]!;
+function selectScenarios(scenarios: Scenario[]): Scenario[] {
+  if (selectedScenarioNames === undefined) return scenarios;
+  const names = selectedScenarioNames.split(',').map(name => name.trim());
+  if (names.some(name => name.length === 0)) throw new Error('DRAW_BENCH_SCENARIOS must be a comma-separated list of non-empty scenario names');
+  const duplicates = names.filter((name, index) => names.indexOf(name) !== index);
+  if (duplicates.length > 0) throw new Error(`DRAW_BENCH_SCENARIOS contains duplicate names: ${[...new Set(duplicates)].join(', ')}`);
+  const supported = new Set(scenarios.map(scenario => scenario.name));
+  const unknown = names.filter(name => !supported.has(name));
+  if (unknown.length > 0) throw new Error(`Unknown DRAW_BENCH_SCENARIOS names: ${unknown.join(', ')}. Supported names: ${[...supported].join(', ')}`);
+  const selected = new Set(names);
+  return scenarios.filter(scenario => selected.has(scenario.name));
+}
 
 async function resetSamples(page: Page) {
   // Let queued worker results and coalesced drawing settle before the next scenario.
@@ -81,13 +102,17 @@ test('sustained editing and fixed-camera culling', async ({ browser }) => {
     return { kind: 'culling' as const, name: `culling-${offscreen}`, fixture: 'small', path: basePath, offscreen,
       nodes: nodes.length, edges: base.edges.length, sha256: sha256(input), input };
   });
-  const scenarios: Scenario[] = [...fileScenarios, ...cullingScenarios];
+  const scenarios = selectScenarios([...fileScenarios, ...cullingScenarios]);
   for (const scenario of scenarios) {
     for (let run = 0; run < warmups + repetitions; run++) {
       const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
       try {
         const page = await context.newPage();
-        await page.addInitScript(() => { (window as BenchWindow).__DRAW_BENCHMARK_ENABLED__ = true; });
+        await page.addInitScript(enabled => {
+          const target = window as BenchWindow;
+          target.__DRAW_BENCHMARK_ENABLED__ = true;
+          target.__DRAW_BENCHMARK_RESPONSE_BYTES__ = enabled;
+        }, responseByteAccounting);
         await page.goto('/');
         await page.getByText('Ready · local workspace', { exact: false }).waitFor();
         await page.locator('input[type=file]').setInputFiles({ name: `${scenario.name}.mso`, mimeType: 'application/json', buffer: Buffer.from(scenario.input) });
@@ -139,6 +164,9 @@ test('sustained editing and fixed-camera culling', async ({ browser }) => {
             for (const name of ['worker.queueWait', 'worker.engineOutput', 'worker.operation', 'editor.engineOutputParse']) {
               expect(samples.some(sample => sample.name === name && sample.detail?.command === command), `Missing ${name} for ${command}`).toBe(true);
             }
+            for (const name of ['worker.responseByteAccounting', 'worker.responseJsonBytes']) {
+              expect(samples.some(sample => sample.name === name && sample.detail?.command === command), `${name} mode mismatch for ${command}`).toBe(responseByteAccounting);
+            }
           }
         } else {
           expect(roundTrips).toHaveLength(0);
@@ -170,7 +198,22 @@ test('sustained editing and fixed-camera culling', async ({ browser }) => {
   const report = {
     schemaVersion: 1, suite: 'diagram-browser-stress', createdAt: new Date().toISOString(),
     fixtures: scenarios.map(fixtureMetadata),
-    methodology: { warmups, repetitions, gestures, pointerSteps: 24, pointerDelayMs: 16, cullingSteps: 120, aggregation: 'event median/p95/max/count per run, then median and p95 across runs' },
+    methodology: {
+      warmups,
+      repetitions,
+      gestures,
+      pointerSteps: 24,
+      pointerDelayMs: 16,
+      cullingSteps: 120,
+      aggregation: 'event median/p95/max/count per run, then median and p95 across runs',
+      responseByteAccounting: {
+        enabled: responseByteAccounting,
+        byteMetric: 'worker.responseJsonBytes',
+        timingMetric: 'worker.responseByteAccounting',
+        includedInWorkerRoundTrip: true,
+        includedInWorkerOperation: false,
+      },
+    },
     metadata: { browser: { name: 'chromium', version: browser.version() }, hardware: { cpu: cpus()[0]?.model, logicalCpus: cpus().length, totalMemoryBytes: totalmem() }, os: { platform: platform(), release: release() }, git: { commit: git(['rev-parse', 'HEAD']), dirty: Boolean(git(['status', '--porcelain'])) }, runtime: { viewport: { width: 1440, height: 900 }, devicePixelRatio: 1, build: 'production', profileEnabled: false } },
     metrics, rawRuns,
   };

@@ -11,12 +11,17 @@ export interface BenchmarkApi {
 
 type BenchmarkWindow = Window & {
   __DRAW_BENCHMARK_ENABLED__?: boolean;
+  __DRAW_BENCHMARK_RESPONSE_BYTES__?: boolean;
   __DRAW_BENCHMARK_SAMPLES__?: PerformanceSample[];
   __DRAW_BENCHMARK_API__?: BenchmarkApi;
 };
 
 export function benchmarkEnabled(): boolean {
   return typeof window !== 'undefined' && Boolean((window as BenchmarkWindow).__DRAW_BENCHMARK_ENABLED__);
+}
+
+export function responseByteAccountingEnabled(): boolean {
+  return benchmarkEnabled() && (window as BenchmarkWindow).__DRAW_BENCHMARK_RESPONSE_BYTES__ !== false;
 }
 
 export function recordPerformance(sample: PerformanceSample): void {

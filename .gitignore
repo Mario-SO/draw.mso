@@ -7,3 +7,16 @@ target/
 playwright-report/
 test-results/
 benchmark-results/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Local logs and editor state
+*.log
+.idea/
+*.swp
+*.swo
+*~

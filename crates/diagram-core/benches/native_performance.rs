@@ -1,5 +1,5 @@
 use draw_diagram_core::{
-    Document, DocumentPatch, Edge, Engine, Node, NodeKind, Side, validate_document,
+    DisplayScene, Document, DocumentPatch, Edge, Engine, Node, NodeKind, Side, validate_document,
 };
 use serde_json::{Value, json};
 use std::env;
@@ -142,15 +142,16 @@ fn main() {
         if !matches_filter(spec.name, options.fixture.as_deref()) {
             continue;
         }
-        let document = fixture(spec);
-        validate_document(&document).expect("generated fixture must be valid");
-        let document_json = serde_json::to_string(&document).expect("serialize fixture");
+        let (document, document_json) = benchmark_document(spec);
         let patch = representative_patch(&document);
         for operation in [
             "load",
             "validate",
             "patch",
             "scene",
+            "display-warm",
+            "display-serialize",
+            "preview-warm",
             "undo",
             "export-unicode",
             "export-ascii",
@@ -296,6 +297,39 @@ fn timed_operation(
             let engine = Engine::from_document(document.clone()).expect("fixture engine");
             timed(|| black_box(engine.scene()))
         }
+        "display-warm" | "display-serialize" | "preview-warm" => {
+            let mut engine = Engine::from_document(document.clone()).expect("fixture engine");
+            // Warm the same caches used in a live editor before changing one node.
+            black_box(engine.display_scene());
+            if operation == "preview-warm" {
+                let patch_json = serde_json::to_string(patch).expect("serialize patch");
+                return timed(|| {
+                    black_box(
+                        engine
+                            .preview_patch_json(black_box(&patch_json))
+                            .expect("preview patch"),
+                    )
+                });
+            }
+            engine
+                .apply_patch(patch.clone())
+                .expect("prepare display patch");
+            if operation == "display-warm" {
+                timed(|| black_box(engine.display_scene()))
+            } else {
+                let scene = engine.display_scene();
+                let display = DisplayScene {
+                    display_cells: &scene.display_cells,
+                    bounds: &scene.bounds,
+                    routes: &scene.routes,
+                };
+                timed(|| {
+                    black_box(
+                        serde_json::to_string(black_box(&display)).expect("serialize display"),
+                    )
+                })
+            }
+        }
         "undo" => {
             let mut engine = Engine::from_document(document.clone()).expect("fixture engine");
             engine.apply_patch(patch.clone()).expect("prepare undo");
@@ -341,6 +375,9 @@ fn run_profile_loop(options: &Options, seconds: u64) {
             "validate",
             "patch",
             "scene",
+            "display-warm",
+            "display-serialize",
+            "preview-warm",
             "undo",
             "export-unicode",
             "export-ascii",
@@ -349,9 +386,23 @@ fn run_profile_loop(options: &Options, seconds: u64) {
         .contains(&operation),
         "unknown profile operation"
     );
-    let document = fixture(spec);
-    let document_json = serde_json::to_string(&document).expect("serialize fixture");
+    let (document, document_json) = benchmark_document(spec);
     let patch = representative_patch(&document);
+    // A preview profile must retain its caches: recreating the engine inside
+    // each iteration mostly profiles cold setup instead of live editing.
+    let preview_setup = (operation == "preview-warm").then(|| {
+        let engine = Engine::from_document(document.clone()).expect("fixture engine");
+        black_box(engine.display_scene());
+        let mut alternate = patch.clone();
+        alternate.updated_nodes[0].x += 1;
+        (
+            engine,
+            [
+                serde_json::to_string(&patch).unwrap(),
+                serde_json::to_string(&alternate).unwrap(),
+            ],
+        )
+    });
     let deadline = Instant::now() + std::time::Duration::from_secs(seconds);
     let mut iterations = 0_u64;
     eprintln!(
@@ -361,19 +412,28 @@ fn run_profile_loop(options: &Options, seconds: u64) {
         std::process::id()
     );
     while Instant::now() < deadline {
-        black_box(timed_operation(
-            operation,
-            &document,
-            &document_json,
-            &patch,
-        ));
+        if let Some((engine, patches)) = &preview_setup {
+            black_box(
+                engine
+                    .preview_patch_json(black_box(&patches[(iterations % 2) as usize]))
+                    .expect("profile preview"),
+            );
+        } else {
+            black_box(timed_operation(
+                operation,
+                &document,
+                &document_json,
+                &patch,
+            ));
+        }
         iterations += 1;
     }
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
             "schemaVersion": 1, "suite": "diagram-core-native-profile-loop", "fixture": spec.name,
-            "operation": operation, "requestedSeconds": seconds, "iterations": iterations
+            "operation": operation, "requestedSeconds": seconds, "iterations": iterations,
+            "profileMode": if preview_setup.is_some() { "persistent engine, alternating previews" } else { "repeated operation including setup" }
         }))
         .unwrap()
     );
@@ -478,6 +538,16 @@ fn fixture(spec: FixtureSpec) -> Document {
     }
 }
 
+// Preserve portable v1 fixture bytes for load/import measurements, but validate
+// and edit the migrated document accepted by the current engine version.
+fn benchmark_document(spec: FixtureSpec) -> (Document, String) {
+    let source = fixture(spec);
+    let json = serde_json::to_string(&source).expect("serialize fixture");
+    let engine =
+        Engine::from_document(source).expect("generated fixture must migrate and validate");
+    (engine.document().clone(), json)
+}
+
 fn representative_patch(document: &Document) -> DocumentPatch {
     let mut node = document.nodes[0].clone();
     node.x += 1;
@@ -497,7 +567,8 @@ fn write_fixtures(directory: &Path, filter: Option<&str>) {
             continue;
         }
         let document = fixture(spec);
-        validate_document(&document).expect("generated fixture must be valid");
+        Engine::from_document(document.clone())
+            .expect("generated fixture must migrate and validate");
         let path = directory.join(format!("{}.mso", spec.name));
         let bytes = serde_json::to_vec_pretty(&document).expect("serialize fixture");
         fs::write(&path, &bytes)
@@ -532,8 +603,7 @@ fn machine_metadata() -> Value {
     json!({
         "os": output("uname", &["-s"]), "osRelease": output("uname", &["-r"]),
         "architecture": env::consts::ARCH, "cpu": cpu,
-        "logicalCpus": std::thread::available_parallelism().map(|count| count.get()).ok(),
-        "hostname": output("hostname", &[])
+        "logicalCpus": std::thread::available_parallelism().map(|count| count.get()).ok()
     })
 }
 
@@ -547,6 +617,6 @@ fn source_metadata() -> Value {
     json!({
         "commit": output("git", &["rev-parse", "HEAD"]), "dirty": dirty,
         "rustc": output("rustc", &["--version"]), "cargo": output("cargo", &["--version"]),
-        "executable": env::current_exe().ok().map(|path| path.display().to_string())
+        "executable": env::current_exe().ok().and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()))
     })
 }

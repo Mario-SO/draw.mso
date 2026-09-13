@@ -11,7 +11,6 @@
   "machine": {
     "architecture": "aarch64",
     "cpu": "Apple M4 Pro",
-    "hostname": "machine.local",
     "logicalCpus": 12,
     "os": "Darwin",
     "osRelease": "25.6.0"
@@ -695,7 +694,7 @@
     "cargo": "cargo 1.96.0 (30a34c682 2026-05-25)",
     "commit": "5a53c4b3771b679d74835ca142a47d430a2825bd",
     "dirty": true,
-    "executable": "/Users/mario/Desktop/dev/draw.mso/target/release/deps/native_performance-7e21e127619dca0c",
+    "executable": "native_performance-7e21e127619dca0c",
     "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)"
   },
   "suite": "diagram-core-native",

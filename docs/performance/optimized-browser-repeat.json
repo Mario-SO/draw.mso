@@ -25,7 +25,6 @@
       "version": "153.0.8010.12"
     },
     "hardware": {
-      "hostname": "machine.local",
       "cpu": "Apple M4 Pro",
       "logicalCpus": 12,
       "totalMemoryBytes": 51539607552

@@ -912,9 +912,13 @@ impl Engine {
     pub fn scene_json(&self) -> String {
         serde_json::to_string(&self.scene()).expect("serializable scene")
     }
+    /// Compose the browser projection without serializing it.
+    /// `cells` is empty; terminal callers must use `scene()` or the export APIs.
+    pub fn display_scene(&self) -> Scene {
+        compose_display_cached(&self.document, false, Some(&self.route_cache))
+    }
     pub fn display_scene_json(&self) -> String {
-        let scene = compose_display_cached(&self.document, false, Some(&self.route_cache));
-        serialize_display_scene(&scene)
+        serialize_display_scene(&self.display_scene())
     }
     pub fn preview_patch_json(&self, json: &str) -> Result<String, DiagramError> {
         let patch: DocumentPatch = serde_json::from_str(json).map_err(|e| {
@@ -1269,12 +1273,25 @@ fn selected_routing_nodes<'a>(nodes: &'a [Node], from: &Node, to: &Node) -> Vec<
         x: (from.x + from.width / 2 + to.x + to.width / 2) / 2,
         y: (from.y + from.height / 2 + to.y + to.height / 2) / 2,
     };
-    let mut selected: Vec<&Node> = nodes.iter().collect();
-    selected.sort_by_key(|node| {
-        (node.x + node.width / 2 - midpoint.x).abs() + (node.y + node.height / 2 - midpoint.y).abs()
-    });
-    selected.truncate(MAX_ROUTING_OBSTACLES);
+    let mut selected = nodes
+        .iter()
+        .enumerate()
+        .map(|(document_index, node)| {
+            let distance = (node.x + node.width / 2 - midpoint.x).abs()
+                + (node.y + node.height / 2 - midpoint.y).abs();
+            // The index preserves the stable full sort's document-order tie break.
+            (distance, document_index)
+        })
+        .collect::<Vec<_>>();
+    if selected.len() > MAX_ROUTING_OBSTACLES {
+        selected.select_nth_unstable(MAX_ROUTING_OBSTACLES);
+        selected.truncate(MAX_ROUTING_OBSTACLES);
+    }
+    selected.sort_unstable();
     selected
+        .into_iter()
+        .map(|(_, document_index)| &nodes[document_index])
+        .collect()
 }
 
 fn cached_route(
@@ -3018,6 +3035,72 @@ mod tests {
             text_direction: None,
             line_direction: None,
         }
+    }
+
+    fn selected_routing_nodes_reference<'a>(
+        nodes: &'a [Node],
+        from: &Node,
+        to: &Node,
+    ) -> Vec<&'a Node> {
+        let midpoint = Point {
+            x: (from.x + from.width / 2 + to.x + to.width / 2) / 2,
+            y: (from.y + from.height / 2 + to.y + to.height / 2) / 2,
+        };
+        let mut selected: Vec<&Node> = nodes.iter().collect();
+        selected.sort_by_key(|node| {
+            (node.x + node.width / 2 - midpoint.x).abs()
+                + (node.y + node.height / 2 - midpoint.y).abs()
+        });
+        selected.truncate(MAX_ROUTING_OBSTACLES);
+        selected
+    }
+
+    #[test]
+    fn capped_routing_node_selection_matches_stable_full_sort() {
+        let from = node("from", -31, 7, 8, 5);
+        let to = node("to", 34, -9, 7, 6);
+        let varied = (0..257)
+            .map(|index| {
+                let x = (index % 17) as i32 - 8;
+                let y = ((index / 17) % 11) as i32 - 5;
+                node(
+                    &format!("varied-{index}"),
+                    x * 3,
+                    y * 3,
+                    index as i32 % 4 + 1,
+                    index as i32 % 3 + 1,
+                )
+            })
+            .collect::<Vec<_>>();
+        let tied = (0..80)
+            .map(|index| node(&format!("tied-{index}"), 0, 0, 5, 5))
+            .collect::<Vec<_>>();
+        let small = vec![
+            from.clone(),
+            node("near-a", -2, 0, 3, 3),
+            node("near-b", 1, -1, 3, 3),
+            to.clone(),
+        ];
+        let empty = Vec::new();
+
+        for nodes in [&varied, &tied, &small, &empty] {
+            let expected = selected_routing_nodes_reference(nodes, &from, &to);
+            let actual = selected_routing_nodes(nodes, &from, &to);
+            assert_eq!(
+                actual.iter().map(|node| &node.id).collect::<Vec<_>>(),
+                expected.iter().map(|node| &node.id).collect::<Vec<_>>()
+            );
+        }
+        assert_eq!(selected_routing_nodes(&varied, &from, &to).len(), 64);
+        assert_eq!(
+            selected_routing_nodes(&tied, &from, &to)
+                .iter()
+                .map(|node| node.id.as_str())
+                .collect::<Vec<_>>(),
+            (0..64)
+                .map(|index| format!("tied-{index}"))
+                .collect::<Vec<_>>()
+        );
     }
 
     fn is_border(node: &Node, point: Point) -> bool {

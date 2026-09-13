@@ -6,7 +6,7 @@ let engine: Engine | undefined;
 const initialized = init({ module_or_path: wasmUrl });
 let queue = Promise.resolve();
 self.onmessage = (event: MessageEvent<EngineWorkerRequest>) => {
-  const { id, type, payload, benchmark } = event.data;
+  const { id, type, payload, benchmark, responseByteAccounting } = event.data;
   const receivedAt = benchmark ? performance.now() : 0;
   queue = queue.then(async () => {
     const samples: WorkerPerformanceSample[] = [];
@@ -22,7 +22,12 @@ self.onmessage = (event: MessageEvent<EngineWorkerRequest>) => {
     };
     const respond = (result: EngineWireResult | string, operationAt: number) => {
       sample('worker.operation', now() - operationAt);
-      if (benchmark) sample('worker.responseJsonBytes', new TextEncoder().encode(JSON.stringify(result)).byteLength, 'bytes');
+      if (benchmark && responseByteAccounting !== false) {
+        const accountingAt = now();
+        const bytes = new TextEncoder().encode(JSON.stringify(result)).byteLength;
+        sample('worker.responseByteAccounting', now() - accountingAt);
+        sample('worker.responseJsonBytes', bytes, 'bytes');
+      }
       self.postMessage({ id, result, ...(benchmark ? { performance: samples } : {}) });
     };
     try {
