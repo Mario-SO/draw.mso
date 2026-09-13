@@ -297,7 +297,7 @@ test("positions titles on all six border locations and persists the choice", asy
     for (const [alignment, column] of [["left", 2], ["middle", 10], ["right", 19]] as const) {
       const value = side + "-" + alignment
       await position.selectOption(value)
-      expect((await saveDocument(page)).document.nodes[0]).toMatchObject({ title: "API", titlePosition: value })
+      await expect(position).toHaveValue(value)
       const download = await exportUnicode(page)
       const rows = (await readFile((await download.path())!, "utf8")).trimEnd().split("\n")
       const row = side === "top" ? rows[0]! : rows.at(-1)!
@@ -308,6 +308,8 @@ test("positions titles on all six border locations and persists the choice", asy
   await expect(position).toHaveValue("bottom-middle")
   await page.getByRole("button", { name: "Redo", exact: true }).click()
   await expect(position).toHaveValue("bottom-right")
+  await expect(page.locator(".canvas-meta")).toContainText("Saved on this device")
+  expect((await saveDocument(page)).document.nodes[0]).toMatchObject({ title: "API", titlePosition: "bottom-right" })
   await page.reload()
   await expect(page.locator(".canvas-meta")).toContainText("Ready")
   expect((await saveDocument(page)).document.nodes[0]).toMatchObject({ title: "API", titlePosition: "bottom-right" })

@@ -111,6 +111,9 @@ export class Editor {
         const point = this.renderer.gridToScreen(node.x + node.width / 2, node.y + node.height / 2);
         const rect = this.canvas.getBoundingClientRect();
         return { x: rect.left + point.x, y: rect.top + point.y };
+      }, setCamera: camera => {
+        this.autoFit = false;
+        this.renderer.setCamera(camera);
       } };
       (window as Window & { __DRAW_BENCHMARK_API__?: BenchmarkApi }).__DRAW_BENCHMARK_API__ = this.benchmarkApi;
     }

@@ -4,7 +4,10 @@ export interface PerformanceSample {
   unit: 'ms' | 'bytes' | 'count';
   detail?: Record<string, string | number | boolean>;
 }
-export interface BenchmarkApi { firstNodeCenter(): { x: number; y: number } | null }
+export interface BenchmarkApi {
+  firstNodeCenter(): { x: number; y: number } | null;
+  setCamera(camera: { x: number; y: number; zoom: number }): void;
+}
 
 type BenchmarkWindow = Window & {
   __DRAW_BENCHMARK_ENABLED__?: boolean;
