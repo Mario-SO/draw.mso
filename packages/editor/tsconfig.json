@@ -1,0 +1,1 @@
+{"extends":"@draw/typescript-config/base.json","compilerOptions":{"types":["vite/client"]},"include":["src"]}

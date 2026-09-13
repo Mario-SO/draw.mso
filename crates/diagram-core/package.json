@@ -1,0 +1,11 @@
+{
+  "name": "@draw/diagram-core",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "cargo check --locked -p draw-diagram-core",
+    "check": "cargo check --locked -p draw-diagram-core",
+    "lint": "cargo clippy --locked -p draw-diagram-core -- -D warnings",
+    "test": "cargo test --locked -p draw-diagram-core"
+  }
+}

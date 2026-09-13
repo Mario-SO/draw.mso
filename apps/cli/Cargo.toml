@@ -1,0 +1,11 @@
+[package]
+name = "draw-cli"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "draw-mso"
+path = "src/main.rs"
+
+[dependencies]
+draw-diagram-core = { path = "../../crates/diagram-core" }

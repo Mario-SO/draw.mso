@@ -1,0 +1,25 @@
+{
+  "name": "@draw/engine-wasm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./wasm": "./dist/index_bg.wasm"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "wasm-pack build --locked --target web --out-dir dist --out-name index",
+    "check": "cargo check --locked -p draw-engine-wasm",
+    "test": "cargo test --locked -p draw-engine-wasm",
+    "dev": "node scripts/watch.mjs"
+  },
+  "dependencies": {
+    "@draw/diagram-core": "workspace:*"
+  }
+}

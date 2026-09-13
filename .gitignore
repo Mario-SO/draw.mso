@@ -1,0 +1,8 @@
+node_modules/
+dist/
+target/
+.turbo/
+.DS_Store
+*.tsbuildinfo
+playwright-report/
+test-results/

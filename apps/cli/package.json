@@ -1,0 +1,11 @@
+{
+  "name": "@draw/cli",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "cargo build --locked -p draw-cli",
+    "check": "cargo check --locked -p draw-cli",
+    "test": "cargo test --locked -p draw-cli"
+  },
+  "dependencies": { "@draw/diagram-core": "workspace:*" }
+}

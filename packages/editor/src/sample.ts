@@ -1,0 +1,22 @@
+import type { DiagramDocument } from '@draw/renderer';
+export const sampleDocument: DiagramDocument = {
+  version: 1,
+  title: 'Event-driven architecture',
+  nodes: [
+    { id: 'client', kind: 'service', label: 'Web client\nReact · browser', x: 5, y: 13, width: 22, height: 6 },
+    { id: 'gateway', kind: 'service', label: 'API gateway\nREST / v1', x: 38, y: 13, width: 24, height: 6 },
+    { id: 'auth', kind: 'service', label: 'Auth service\nJWT · sessions', x: 38, y: 1, width: 24, height: 6 },
+    { id: 'queue', kind: 'queue', label: 'Event bus\norders.created', x: 74, y: 13, width: 24, height: 6 },
+    { id: 'database', kind: 'database', label: 'PostgreSQL\nprimary · replica', x: 38, y: 29, width: 24, height: 6 },
+    { id: 'worker', kind: 'service', label: 'Worker pool\nasync processing', x: 74, y: 29, width: 24, height: 6 },
+    { id: 'note', kind: 'text', label: '01 / REQUEST & EVENT FLOW', x: 5, y: 1, width: 29, height: 2 },
+  ],
+  edges: [
+    { id: 'e1', from: 'client', to: 'gateway', label: 'HTTPS' },
+    { id: 'e2', from: 'gateway', to: 'auth', label: 'verify' },
+    { id: 'e3', from: 'gateway', to: 'queue', label: 'publish' },
+    { id: 'e4', from: 'gateway', to: 'database', label: 'SQL' },
+    { id: 'e5', from: 'queue', to: 'worker', label: 'consume' },
+    { id: 'e6', from: 'worker', to: 'database', label: 'write' },
+  ],
+};

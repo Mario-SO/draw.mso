@@ -1,0 +1,22 @@
+{
+  "name": "@draw/editor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@draw/renderer": "workspace:*",
+    "@draw/engine-wasm": "workspace:*",
+    "dexie": "^4.3.0"
+  },
+  "devDependencies": {
+    "@draw/typescript-config": "workspace:*",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.0"
+  }
+}

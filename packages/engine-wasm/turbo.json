@@ -1,0 +1,8 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "build": { "cache": true, "env": ["RUSTUP_TOOLCHAIN", "RUSTFLAGS"], "outputs": ["dist/**"], "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/Cargo.toml", "$TURBO_ROOT$/Cargo.lock", "$TURBO_ROOT$/rust-toolchain.toml", "$TURBO_ROOT$/crates/diagram-core/**"] },
+    "check": { "cache": false, "env": ["RUSTUP_TOOLCHAIN", "RUSTFLAGS"], "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/Cargo.toml", "$TURBO_ROOT$/Cargo.lock", "$TURBO_ROOT$/rust-toolchain.toml", "$TURBO_ROOT$/crates/diagram-core/**"] },
+    "test": { "cache": false, "env": ["RUSTUP_TOOLCHAIN", "RUSTFLAGS"], "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/Cargo.toml", "$TURBO_ROOT$/Cargo.lock", "$TURBO_ROOT$/rust-toolchain.toml", "$TURBO_ROOT$/crates/diagram-core/**"] }
+  }
+}
