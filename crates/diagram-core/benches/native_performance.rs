@@ -403,6 +403,17 @@ fn fixture(spec: FixtureSpec) -> Document {
             y: spec.origin.1 + row as i32 * spec.y_spacing,
             width: if spec.name == "long-labels" { 20 } else { 10 },
             height: 5,
+            border: None,
+            text_align: None,
+            vertical_align: None,
+            padding: None,
+            wrap_text: None,
+            fill: None,
+            shadow: None,
+            hidden: None,
+            locked: None,
+            text_direction: None,
+            line_direction: None,
         });
     }
     let rows = spec.nodes.div_ceil(spec.columns) as i32;
@@ -419,6 +430,17 @@ fn fixture(spec: FixtureSpec) -> Document {
             y: spec.origin.1 + row as i32 * spec.y_spacing - 2,
             width: spec.x_spacing * 2,
             height: (rows.min(3) * spec.y_spacing).max(8),
+            border: None,
+            text_align: None,
+            vertical_align: None,
+            padding: None,
+            wrap_text: None,
+            fill: None,
+            shadow: None,
+            hidden: None,
+            locked: None,
+            text_direction: None,
+            line_direction: None,
         });
     }
     let mut edges = Vec::with_capacity(spec.edges);
@@ -436,6 +458,12 @@ fn fixture(spec: FixtureSpec) -> Document {
             label: format!("flow-{index}"),
             from_side: (index % 3 == 0).then_some(Side::Right),
             to_side: (index % 3 == 0).then_some(Side::Left),
+            from_point: None,
+            to_point: None,
+            start_arrow: None,
+            end_arrow: None,
+            line_style: None,
+            routing: None,
         });
     }
     Document {

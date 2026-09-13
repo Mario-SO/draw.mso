@@ -19,3 +19,13 @@ test('deletion includes incident edge removals and a no-op contains no changes',
   assert.deepEqual(patch.removedNodeIds, ['b']); assert.deepEqual(patch.removedEdgeIds, ['e']); assert.equal(patch.title, 'B');
   assert.ok(Object.values(diffDocument(before, structuredClone(before))).every(value => Array.isArray(value) && value.length === 0));
 });
+
+test('reordering emits one exact final permutation without marking nodes updated', () => {
+  const after = structuredClone(before); after.nodes.reverse();
+  const patch = diffDocument(before, after);
+  assert.deepEqual(patch.nodeOrder, ['b', 'a']);
+  assert.deepEqual(patch.updatedNodes, []);
+
+  const appended = structuredClone(before); appended.nodes.push({ id: 'c', label: '', kind: 'rectangle', x: 0, y: 5, width: 8, height: 3 });
+  assert.equal(diffDocument(before, appended).nodeOrder, undefined);
+});

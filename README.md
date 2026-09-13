@@ -1,6 +1,6 @@
 # draw.mso
 
-A local-first diagram editor for developers. Draw system diagrams on a character grid, then copy them into documentation or export SVG. React handles the interface; a Rust engine owns validated documents, undo history, connector geometry, and text composition. The same engine powers the CLI.
+A local-first text drawing and diagram editor. Draw on a character grid, then copy them into documentation or export SVG. React handles the interface; a Rust engine owns validated documents, undo history, connector geometry, and text composition. The same engine powers the CLI.
 
 <img width="1280" height="720" alt="image" src="https://github.com/user-attachments/assets/d30d02d1-b607-4468-a2ee-d1ded6251981" />
 <img width="1280" height="720" alt="image" src="https://github.com/user-attachments/assets/0ea524d7-f39a-417d-b155-dbd7880390f9" />
@@ -26,32 +26,34 @@ On this development machine, the installed stable toolchain is already Rust 1.96
 
 The top-left panel button shows or hides a floating document sidebar. New documents and imported files get separate entries, and the active document is restored on reload. Opening, editing, and saving keep documents in their existing order; new documents append to the list. Double-click the active document (or press F2 while its row is focused) to rename it. Hover over a document to reveal its delete button. Documents stay on this device in IndexedDB; Save downloads a portable `.mso` file. The previous single-document autosave is migrated automatically and retained as a recovery copy.
 
-- Choose a shape in the floating toolbar and click the canvas. Controls for a selected block appear in a contextual inspector.
-- Services use single borders, databases double borders, queues dashed borders, and boundaries lighter dashed outlines. Unicode and SVG exports preserve these distinctions.
-- Shift-click to add or remove objects from a selection, or drag an empty area to select several. Cmd/Ctrl+A selects all.
-- Group a selection with Cmd/Ctrl+G; click any member to select the group. Cmd/Ctrl+Shift+G ungroups. Groups are flat and preserve internal connections when duplicated.
-- Use the selection panel to align objects or groups. Moving objects snaps to nearby edges and centers; hold Alt to bypass, or Escape to cancel the gesture.
-- Drag to move; drag the lower-right selection handle to resize. Shift constrains a drag to one axis.
-- Double-click a block (or press Enter with it selected) to edit multiple lines. Cmd/Ctrl+Enter commits; Escape cancels.
-- Select Connect, click a source, then a destination. Hover to reveal ports; click near a border to keep that side attached, or click the center for automatic routing. Select an endpoint to edit or remove its connections in the inspector.
+- Draw boxes by dragging; click for a default size. Shapes are general primitives, with border, fill, shadow, and text controls in the contextual inspector.
+- Click Text to start an auto-fitting text object, or drag to create a wrapping text frame. Double-click or press Enter to edit; Cmd/Ctrl+Enter commits and Escape cancels. Text supports horizontal/vertical placement, padding, wrapping, and directional layout.
+- The Line tool connects shapes or arbitrary grid points. Click two endpoints or drag between them. Side attachments follow shapes as they move. Select a line to configure orthogonal/staircase routing, dashes, markers, and its label; drag an endpoint to reconnect it.
+- Pencil paints the current character, Eraser removes drawn text cells, Fill sets a box’s background character without changing its text, and Picker samples a displayed character. A pencil stroke is a single undo step and its compact text runs are grouped for movement. Drawing remains on this device.
+- The Objects panel selects, hides, locks, and reorders shapes. Hidden shapes and their connections are excluded from exports; locking prevents canvas movement. This is a flat object list, with the existing flat groups.
+- Shift-click to add or remove objects from a selection, or drag an empty area to select several. Cmd/Ctrl+A selects all available objects.
+- Group with Cmd/Ctrl+G; click a member to select its group. Cmd/Ctrl+Shift+G ungroups. Duplicate preserves internal connections.
+- Align a selection through the selection panel. Movement snaps to nearby edges and centers; Alt bypasses snapping, Shift constrains an axis, and Escape cancels.
 - Scroll to pan, pinch/Ctrl+wheel to zoom, or hold Space and drag.
-- Save an editable `.mso` JSON file, export Unicode/ASCII/SVG, or copy Unicode text.
+- Save editable `.mso` files, open `.txt` drawings, paste plain text onto the canvas, or export Unicode, ASCII, SVG, and PNG.
 - Autosave uses IndexedDB. Files are the portable backup; browser storage can be cleared by the browser or user.
 
 | Shortcut | Action |
 | --- | --- |
-| V / H / C | Select / pan / connect |
-| S / D / Q / B / T | Service / database / queue / boundary / text |
+| V / H | Select / pan |
+| R / T / L | Rectangle / text / line |
+| P / E / B / I | Pencil / eraser / fill / picker |
 | F or 1 | Fit diagram |
 | Tab on canvas | Cycle through nodes |
 | Arrow keys / Shift+arrows | Move selection by 1 / 5 cells |
 | Cmd/Ctrl+Z / Shift+Cmd/Ctrl+Z | Undo / redo |
-| Cmd/Ctrl+D | Duplicate selection and its internal connections |
+| Cmd/Ctrl+D | Duplicate selection and internal connections |
 | Cmd/Ctrl+A | Select all |
 | Cmd/Ctrl+G / Shift+Cmd/Ctrl+G | Group / ungroup |
 | Delete / Backspace | Delete selection and incident edges |
 | Cmd/Ctrl+S | Save file |
 | Cmd/Ctrl+C | Copy diagram as Unicode |
+
 
 ## Workspace
 
@@ -98,6 +100,8 @@ Run `pnpm bench:native` and `pnpm bench:browser` separately for repeatable nativ
 
 The versioned document and patch schemas, compatibility policy, structured errors, and shared CLI/browser editing semantics are documented in [the document contract](docs/document-contract.md). Portable TypeScript types are exported by `@draw/diagram-core/contract`; the renderer re-exports its existing document types for compatibility.
 
-## Version 0.1 scope
+## Monodraw research and parity
 
-This is a working foundation, not a finished replacement for Monodraw. Connectors evaluate bounded orthogonal route candidates to avoid nearby blocks; crowded diagrams can still produce crossings. Boundaries are visual containers, not hierarchical groups. Multi-selection and flat groups are supported; nested groups and scaling multiple objects are not yet supported. Labels use one Unicode scalar per logical cell; wide emoji and combining sequences are not guaranteed to align. ASCII export substitutes unsupported characters. See `docs/architecture.md` for performance choices and current limits.
+The tooling follows the general-purpose approach studied in [the Monodraw research inventory](docs/monodraw-research.md). It is not yet complete Monodraw parity: FIGlet/fonts, image tracing, custom anchor chains and waypoints, nested groups, snippets, and per-shape character overrides that survive resizing remain future work. Drawing currently uses grouped text surfaces rather than Monodraw's fully editable generated shapes. The inventory distinguishes verified Monodraw behavior from implementation recommendations.
+
+Orthogonal connectors evaluate bounded route candidates; crowded diagrams can still produce crossings. Staircase lines follow grid steps directly. Text uses one Unicode scalar per logical cell; wide emoji and combining sequences are not guaranteed to align. ASCII export substitutes unsupported characters. See [architecture](docs/architecture.md) for performance choices and limits.

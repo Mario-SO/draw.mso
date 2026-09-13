@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://draw.mso/schemas/document-patch-v2.schema.json",
+  "title": "draw.mso document patch v2", "type": "object", "additionalProperties": false,
+  "properties": {
+    "removedNodeIds": { "type": "array", "items": { "$ref": "document-v2.schema.json#/$defs/id" } },
+    "updatedNodes": { "type": "array", "items": { "$ref": "document-v2.schema.json#/$defs/node" } },
+    "addedNodes": { "type": "array", "items": { "$ref": "document-v2.schema.json#/$defs/node" } },
+    "removedEdgeIds": { "type": "array", "items": { "$ref": "document-v2.schema.json#/$defs/id" } },
+    "updatedEdges": { "type": "array", "items": { "$ref": "document-v2.schema.json#/$defs/edge" } },
+    "addedEdges": { "type": "array", "items": { "$ref": "document-v2.schema.json#/$defs/edge" } },
+    "title": { "oneOf": [{ "$ref": "document-v2.schema.json#/$defs/text" }, { "type": "null" }] },
+    "nodeOrder": { "type": "array", "items": { "$ref": "document-v2.schema.json#/$defs/id" } }
+  }
+}

@@ -2,17 +2,29 @@
  * See schemas/ and docs/document-contract.md for constraints and compatibility.
  * No browser or renderer dependencies belong in this module.
  */
-export const DOCUMENT_VERSION = 1 as const;
+export const DOCUMENT_VERSION = 2 as const;
 
 export interface DiagramNode {
   groupId?: string | null;
   id: string;
-  kind: "service" | "database" | "queue" | "boundary" | "text";
+  kind: "service" | "database" | "queue" | "boundary" | "text" | "rectangle";
   label: string;
   x: number;
   y: number;
   width: number;
   height: number;
+  border?: "none" | "single" | "double" | "rounded" | "heavy" | "dashed";
+  textAlign?: "left" | "center" | "right";
+  verticalAlign?: "top" | "middle" | "bottom";
+  padding?: number;
+  wrap?: boolean;
+  /** Exactly one Unicode scalar. */
+  fill?: string;
+  shadow?: boolean;
+  hidden?: boolean;
+  locked?: boolean;
+  textDirection?: "right" | "left" | "down" | "up";
+  lineDirection?: "down" | "up" | "right" | "left";
 }
 
 export type ConnectionSide = "left" | "right" | "top" | "bottom";
@@ -24,10 +36,19 @@ export interface DiagramEdge {
   from: string;
   to: string;
   label: string;
+  fromPoint?: DiagramPoint | null;
+  toPoint?: DiagramPoint | null;
+  startArrow?: ArrowStyle;
+  endArrow?: ArrowStyle;
+  lineStyle?: "solid" | "dashed";
+  routing?: "orthogonal" | "staircase";
 }
 
+export interface DiagramPoint { x: number; y: number }
+export type ArrowStyle = "none" | "arrow" | "diamond" | "circle";
+
 export interface DiagramDocument {
-  version: 1;
+  version: 1 | 2;
   title: string;
   nodes: DiagramNode[];
   edges: DiagramEdge[];
@@ -41,6 +62,8 @@ export interface DocumentPatch {
   updatedEdges?: DiagramEdge[];
   addedEdges?: DiagramEdge[];
   title?: string | null;
+  /** Complete permutation of final node IDs, from back to front. */
+  nodeOrder?: string[];
 }
 
 /** Stable core failures; adapters may add transport or invocation errors. */

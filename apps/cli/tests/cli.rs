@@ -70,5 +70,5 @@ fn schema_is_discoverable_without_input() {
     let output = binary().args(["schema", "document"]).output().unwrap();
     assert!(output.status.success());
     let schema: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(schema["properties"]["version"]["const"], 1);
+    assert_eq!(schema["properties"]["version"]["const"], 2);
 }

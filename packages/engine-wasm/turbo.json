@@ -20,7 +20,9 @@
         "$TURBO_ROOT$/crates/diagram-core/src/**",
         "$TURBO_ROOT$/crates/diagram-core/Cargo.toml",
         "$TURBO_ROOT$/schemas/document-v1.schema.json",
-        "$TURBO_ROOT$/schemas/document-patch-v1.schema.json"
+        "$TURBO_ROOT$/schemas/document-patch-v1.schema.json",
+        "$TURBO_ROOT$/schemas/document-v2.schema.json",
+        "$TURBO_ROOT$/schemas/document-patch-v2.schema.json"
       ]
     },
     "check": {
@@ -37,7 +39,9 @@
         "$TURBO_ROOT$/crates/diagram-core/src/**",
         "$TURBO_ROOT$/crates/diagram-core/Cargo.toml",
         "$TURBO_ROOT$/schemas/document-v1.schema.json",
-        "$TURBO_ROOT$/schemas/document-patch-v1.schema.json"
+        "$TURBO_ROOT$/schemas/document-patch-v1.schema.json",
+        "$TURBO_ROOT$/schemas/document-v2.schema.json",
+        "$TURBO_ROOT$/schemas/document-patch-v2.schema.json"
       ]
     },
     "test": {
@@ -54,7 +58,9 @@
         "$TURBO_ROOT$/crates/diagram-core/src/**",
         "$TURBO_ROOT$/crates/diagram-core/Cargo.toml",
         "$TURBO_ROOT$/schemas/document-v1.schema.json",
-        "$TURBO_ROOT$/schemas/document-patch-v1.schema.json"
+        "$TURBO_ROOT$/schemas/document-patch-v1.schema.json",
+        "$TURBO_ROOT$/schemas/document-v2.schema.json",
+        "$TURBO_ROOT$/schemas/document-patch-v2.schema.json"
       ]
     }
   }

@@ -4,7 +4,7 @@
 
 The Rust `Engine` in a dedicated Web Worker owns the accepted document and undo/redo history. The browser editor holds a read-only mirror for hit testing and interaction previews. A completed gesture creates one atomic patch transaction; pointer movement only changes a transient preview. Rejected documents never replace the current one.
 
-The worker serializes commands. Request IDs pair responses with requests. The browser also serializes transactions, so each change starts from the last accepted document rather than racing with stale state. Exports wait for outstanding edits. Committed changes send added/updated/removed entity patches; Rust validates the resulting document atomically and records one undo entry. Committed changes return the accepted document and a display-only scene. Throttled drag previews (at most 20 requests per second, one in flight) send only changed nodes and return only the display scene, without mutating accepted state or history. The worker sends serialized JSON strings, decoded once by the editor, avoiding structured cloning of large cell object graphs. Terminal-only cells stay in Rust. Import validation uses a temporary engine.
+The worker serializes commands. Request IDs pair responses with requests. The browser also serializes transactions, so each change starts from the last accepted document rather than racing with stale state. Exports wait for outstanding edits. Committed changes send added/updated/removed entity patches and optional validated node ordering; Rust validates the resulting document atomically and records one undo entry. Committed changes return the accepted document and a display-only scene. Throttled drag previews (at most 20 requests per second, one in flight) send only changed nodes and return only the display scene, without mutating accepted state or history. The worker sends serialized JSON strings, decoded once by the editor, avoiding structured cloning of large cell object graphs. Terminal-only cells stay in Rust. Import validation uses a temporary engine.
 
 ## Rendering
 
@@ -20,18 +20,18 @@ The WASM build emits `dist/index.js`, `dist/index.d.ts`, and `dist/index_bg.wasm
 
 ## Files
 
-A `.mso` file is UTF-8 JSON with `version`, `title`, `nodes`, and `edges`. Node coordinates and dimensions are integer character cells. IDs are stable; edges reference node IDs. Version 1 supports service, database, queue, boundary, and text nodes. Optional `groupId` records flat membership without changing existing files; duplication remaps group IDs and internal edge endpoints. Import validates duplicate IDs, references, dimensions, controls, counts, coordinates, and allocation bounds before accepting the document.
+A `.mso` file is UTF-8 JSON with `version`, `title`, `nodes`, and `edges`. Node coordinates and dimensions are integer character cells. IDs are stable; edges reference node IDs. Version 2 adds general box and text tooling with independent border, fill, shadow, text layout, and visibility/locking properties. Rust deterministically upgrades v1 documents while preserving legacy kinds and their appearance. Free line endpoints coexist with node attachments; line routing and markers are independent properties. Optional `groupId` records flat membership without changing existing files; duplication remaps group IDs and internal edge endpoints. Import validates duplicate IDs, references, dimensions, controls, counts, coordinates, and allocation bounds before accepting the document.
 
 Autosave is a convenience copy in IndexedDB, separate from exported user-owned files. The local library stores each document under a stable browser-only ID, with separate active-document and document-order settings. The persisted list order is independent of save timestamps, so opening or editing documents never moves their rows; new documents append and deletion preserves the remaining order. New document, import, and switching flush the outgoing document and reset undo history for the incoming document. The library migration preserves the legacy `documents.current` record as a recovery copy. File validation happens before import or switching replaces the active engine. There is no network document synchronization.
 
 ## First-version limits
 
-- Orthogonal routing scores bounded candidates around nearby obstacles. Dense scenes may still have crossings; explicit side bindings attach to side centers; arbitrary points and draggable bend handles are not supported.
+- Orthogonal routing scores bounded candidates around nearby obstacles. Dense scenes may still have crossings; explicit side bindings attach to side centers; free endpoints and endpoint reconnection are supported; custom anchor positions and draggable bend handles are not yet supported.
 - Whole-document undo snapshots and full scene responses increase memory cost on large documents; history is bounded in Rust.
 - The core caps node/edge counts and bounding area to avoid excessive allocations. This is an effectively large working canvas, not mathematically unbounded storage.
 - Unicode terminal display width differs by font and terminal. One scalar is one logical cell in this version.
 - Boundaries are visual outlines; moving one does not move its enclosed nodes.
-- No multiplayer, cloud storage, auto-layout, freehand drawing, or PNG export yet.
+- No multiplayer, cloud storage, or auto-layout. Pencil drawing uses compact grouped text runs; semantic character overrides on generated shapes are not yet supported. PNG rasterizes the Rust SVG locally.
 
 Tests cover accepted/rejected documents, connector geometry, exports, history, and real browser editing/file workflows. Performance targets from planning remain targets until measured on specified hardware.
 
@@ -40,3 +40,7 @@ Tests cover accepted/rejected documents, connector geometry, exports, history, a
 See [the document contract](document-contract.md) for version compatibility, schema discovery, structured error codes, and CLI patch semantics. Rust remains the authoritative validator; schemas describe wire structure while reference integrity and document-wide limits require core validation. Browser and native callers apply the same atomic patches.
 
 See [performance baselines](performance/README.md) for the repeatable measurement workflow. Native and browser benchmarks run as separate, uncached package tasks. Browser instrumentation is opt-in and records local samples only; it is not telemetry. Measure on an otherwise idle machine after compilation has finished. Timing budgets remain provisional until repeated measurements on specified hardware justify them.
+
+## General-purpose tooling
+
+Tool gestures remain outside React state. Rectangle/text creation, pencil strokes, endpoint reconnection, and object ordering each commit one atomic patch. Pencil strokes are compressed into horizontal runs and grouped instead of allocating a node per cell. Fill changes the hit box’s fill property in one patch, preserving its label and creating no text nodes. Empty-canvas and locked-box clicks do not change the document. Locked/hidden nodes are skipped by canvas hit testing; the object panel can reveal or unlock them. Hidden nodes and incident connectors are excluded by Rust from composition and exports.

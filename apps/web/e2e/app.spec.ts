@@ -26,7 +26,7 @@ async function renameDocument(page: Page, title: string) {
 
 async function waitForSample(page: Page) {
   await page.goto("/")
-  await expect(documentHeading(page)).toHaveText("Event-driven architecture")
+  await expect(documentHeading(page)).toHaveText("A place to think")
   await expect(canvas(page)).toBeVisible()
   await setDocumentsOpen(page, false)
   await expect(page.getByRole("toolbar", { name: "Drawing tools" })).toBeVisible()
@@ -61,6 +61,8 @@ async function addBlock(page: Page, kind: string) {
 }
 
 async function setGeometry(page: Page, values: Record<"X" | "Y" | "W" | "H", number>) {
+  const geometry = page.getByText("Geometry", { exact: true })
+  if ((await geometry.locator("..").getAttribute("open")) === null) await geometry.click()
   for (const [label, value] of Object.entries(values)) {
     const input = page.getByLabel(label, { exact: true })
     await input.fill(String(value))
@@ -90,8 +92,8 @@ test("keeps the resting canvas minimal and reveals properties only for a selecti
   await expect(page.locator(".canvas-meta")).toHaveClass(/sr-only/)
   await expect(page.getByRole("button", { name: "Insert", exact: true })).toHaveCount(0)
 
-  await addBlock(page, "Service")
-  await expect(page.locator("#node-label")).toHaveValue("New service")
+  await addBlock(page, "Rectangle")
+  await expect(page.locator("#node-label")).toHaveValue("")
   await canvas(page).press("Escape")
   await expect(page.getByRole("complementary", { name: "Inspector" })).toHaveCount(0)
 })
@@ -99,20 +101,20 @@ test("keeps the resting canvas minimal and reveals properties only for a selecti
 test("edits geometry, undoes, saves, and restores a document", async ({ page }) => {
   await waitForSample(page)
   await renameDocument(page, "Checkout architecture")
-  await addBlock(page, "Service")
+  await addBlock(page, "Rectangle")
   await setGeometry(page, { X: 12, Y: 9, W: 28, H: 8 })
   await page.locator("#node-label").fill("Payments API")
   await page.locator("#node-label").press("Tab")
 
   await page.getByRole("button", { name: "Undo" }).click()
-  await expect(page.locator("#node-label")).toHaveValue("New service")
+  await expect(page.locator("#node-label")).toHaveValue("")
   await page.getByRole("button", { name: "Redo" }).click()
   await expect(page.locator("#node-label")).toHaveValue("Payments API")
   await expect(page.locator(".canvas-meta")).toContainText("Saved on this device")
 
   const saved = await saveDocument(page)
   expect(saved.download.suggestedFilename()).toBe("checkout-architecture.mso")
-  expect(saved.document).toMatchObject({ version: 1, title: "Checkout architecture" })
+  expect(saved.document).toMatchObject({ version: 2, title: "Checkout architecture" })
   expect(saved.document.nodes.find((node: { label: string }) => node.label === "Payments API")).toMatchObject({ x: 12, y: 9, width: 28, height: 8 })
 
   await page.reload()
@@ -132,11 +134,11 @@ test("keeps a new connection attached after moving and resizing an offset block"
   await page.getByRole("button", { name: "Toggle documents" }).click()
   await page.getByRole("button", { name: "New document", exact: true }).click()
   await page.getByRole("button", { name: "Toggle documents" }).click()
-  await addBlock(page, "Service")
+  await addBlock(page, "Rectangle")
   await setGeometry(page, { X: 0, Y: 2, W: 16, H: 5 })
   await page.locator("#node-label").fill("Producer")
   await page.locator("#node-label").press("Tab")
-  await addBlock(page, "Database")
+  await addBlock(page, "Rectangle")
   await setGeometry(page, { X: 36, Y: 14, W: 18, H: 6 })
   await page.locator("#node-label").fill("Store")
   await page.locator("#node-label").press("Tab")
@@ -144,12 +146,12 @@ test("keeps a new connection attached after moving and resizing an offset block"
   await page.locator(".zoom-value").click()
   const box = await canvas(page).boundingBox()
   expect(box).not.toBeNull()
-  const zoom = Math.min(1.25, (box!.width - 90) / (54 * 9), (box!.height - 100) / (18 * 18))
+  const zoom = Math.min(1.25, Math.max(.15, Math.min((box!.width - 150) / (54 * 9), (box!.height - 180) / (18 * 18))))
   const originX = box!.x + (box!.width - 54 * 9 * zoom) / 2
   const originY = box!.y + (box!.height - 18 * 18 * zoom) / 2 - 2 * 18 * zoom
   const point = (x: number, y: number) => ({ x: originX + x * 9 * zoom, y: originY + y * 18 * zoom })
 
-  await page.getByRole("button", { name: "Connect" }).click()
+  await page.getByRole("button", { name: "Line" }).click()
   const source = point(8, 4.5)
   const destination = point(45, 17)
   await page.mouse.click(source.x, source.y)
@@ -162,7 +164,7 @@ test("keeps a new connection attached after moving and resizing an offset block"
   await expect(page.getByLabel("X", { exact: true })).toHaveValue("3")
   await expect(page.getByLabel("Y", { exact: true })).toHaveValue("4")
 
-  const resize = point(19, 9)
+  const resize = point(18.5, 8.5)
   await page.mouse.move(resize.x, resize.y)
   await page.mouse.down()
   await page.mouse.move(resize.x + 2 * 9 * zoom, resize.y + 18 * zoom, { steps: 5 })
@@ -183,11 +185,11 @@ test("preserves explicit connection sides through geometry changes, undo, and re
   await page.getByRole("button", { name: "Toggle documents" }).click()
   await page.getByRole("button", { name: "New document", exact: true }).click()
   await page.getByRole("button", { name: "Toggle documents" }).click()
-  await addBlock(page, "Service")
+  await addBlock(page, "Rectangle")
   await setGeometry(page, { X: 0, Y: 2, W: 16, H: 5 })
   await page.locator("#node-label").fill("Producer")
   await page.locator("#node-label").press("Tab")
-  await addBlock(page, "Database")
+  await addBlock(page, "Rectangle")
   await setGeometry(page, { X: 36, Y: 14, W: 18, H: 6 })
   await page.locator("#node-label").fill("Store")
   await page.locator("#node-label").press("Tab")
@@ -195,7 +197,7 @@ test("preserves explicit connection sides through geometry changes, undo, and re
   const bounds = { x: 0, y: 2, width: 54, height: 18 }
   const sourceRight = await fittedPoint(page, bounds, 15.5, 4.5)
   const destinationLeft = await fittedPoint(page, bounds, 36.5, 17)
-  await page.getByRole("button", { name: "Connect" }).click()
+  await page.getByRole("button", { name: "Line" }).click()
   await page.mouse.click(sourceRight.x, sourceRight.y)
   await page.mouse.click(destinationLeft.x, destinationLeft.y)
 
@@ -203,8 +205,8 @@ test("preserves explicit connection sides through geometry changes, undo, and re
   expect(saved.document.edges).toHaveLength(1)
   expect(saved.document.edges[0]).toMatchObject({ fromSide: "right", toSide: "left" })
 
-  // The destination remains selected after connecting. Move and resize it through
-  // the inspector so every edit travels through the same document/history path.
+  // Lines now remain selected after connecting; select the destination to edit it.
+  await page.mouse.click(destinationLeft.x + 20, destinationLeft.y)
   await setGeometry(page, { X: 40, Y: 12, W: 20, H: 7 })
   expect((await saveDocument(page)).document.edges[0]).toMatchObject({ fromSide: "right", toSide: "left" })
 
@@ -223,20 +225,20 @@ test("exports Unicode, strict ASCII, and SVG", async ({ page }) => {
   await waitForSample(page)
   const unicodeDownload = await exportDiagram(page, "Unicode text")
   const unicodeText = await readFile((await unicodeDownload.path())!, "utf8")
-  expect(unicodeDownload.suggestedFilename()).toBe("event-driven-architecture.txt")
+  expect(unicodeDownload.suggestedFilename()).toBe("a-place-to-think.txt")
   expect(unicodeText).toMatch(/[┌┐└┘─│]/)
   expect(unicodeText).toMatch(/[╔╗╚╝═║]/)
   expect(unicodeText).toMatch(/[┄┆]/)
-  expect(unicodeText).toContain("API gateway")
+  expect(unicodeText).toContain("Ask a question")
 
   const asciiDownload = await exportDiagram(page, "ASCII text")
   const asciiText = await readFile((await asciiDownload.path())!, "utf8")
-  expect(asciiText).toContain("API gateway")
+  expect(asciiText).toContain("Ask a question")
   expect([...new Set([...asciiText].filter(character => character.codePointAt(0)! > 0x7f))]).toEqual([])
 
   const svgDownload = await exportDiagram(page, "Vector image")
   const svgText = await readFile((await svgDownload.path())!, "utf8")
-  expect(svgDownload.suggestedFilename()).toBe("event-driven-architecture.svg")
+  expect(svgDownload.suggestedFilename()).toBe("a-place-to-think.svg")
   expect(svgText).toMatch(/^<svg[\s>]/)
   expect(svgText).toContain("<text")
   expect(svgText).toContain(">A</text>")
@@ -493,7 +495,7 @@ test('keeps document order stable while editing, switching, reloading, and appen
   await page.getByRole('button', { name: 'New document', exact: true }).click()
   await expect(documentHeading(page)).toHaveText('Untitled diagram')
   await renameDocument(page, 'First workspace')
-  await addBlock(page, 'Service')
+  await addBlock(page, 'Rectangle')
 
   await setDocumentsOpen(page, true)
   await page.getByRole('button', { name: 'New document', exact: true }).click()
@@ -503,7 +505,7 @@ test('keeps document order stable while editing, switching, reloading, and appen
   await expect(list.getByRole('button', { name: 'Second workspace', exact: true })).toBeVisible()
   const rows = list.locator('.document-row')
   const order = await rows.allTextContents()
-  expect(order).toEqual(['Event-driven architecture', 'First workspace', 'Second workspace'])
+  expect(order).toEqual(['A place to think', 'First workspace', 'Second workspace'])
 
   await list.getByRole('button', { name: 'First workspace', exact: true }).click()
   await expect(documentHeading(page)).toHaveText('First workspace')
@@ -527,7 +529,7 @@ test('document trash appears on hover, preserves inactive edits, and handles the
   await page.getByRole('button', { name: 'New document', exact: true }).click()
   await expect(documentHeading(page)).toHaveText('Untitled diagram')
   await renameDocument(page, 'Working document')
-  await addBlock(page, 'Service'); await setDocumentsOpen(page, true)
+  await addBlock(page, 'Rectangle'); await setDocumentsOpen(page, true)
   await page.getByRole('button', { name: 'Delete Old document', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Delete Old document', exact: true })).toHaveCount(0)
   await expect(documentHeading(page)).toHaveText('Working document')
@@ -553,7 +555,7 @@ test('document trash appears on hover, preserves inactive edits, and handles the
 
 test('empty documents reset tools and stay stable through clicks, drags, fit and first placement', async ({ page }) => {
   await waitForSample(page)
-  await page.getByRole('button', { name: 'Connect', exact: true }).click()
+  await page.getByRole('button', { name: 'Line', exact: true }).click()
   await page.getByRole('button', { name: 'Toggle documents' }).click()
   await page.getByRole('button', { name: 'New document', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Select', exact: true })).toHaveAttribute('aria-pressed', 'true')
@@ -569,7 +571,7 @@ test('empty documents reset tools and stay stable through clicks, drags, fit and
   expect((await saveDocument(page)).document.nodes).toHaveLength(0)
   await expect(page.getByRole('alert')).toHaveCount(0)
   await expect(page.getByRole('complementary', { name: 'Inspector' })).toHaveCount(0)
-  await addBlock(page, 'Service')
+  await addBlock(page, 'Rectangle')
   expect((await saveDocument(page)).document.nodes).toHaveLength(1)
   await page.getByRole('button', { name: 'Undo', exact: true }).click()
   expect((await saveDocument(page)).document.nodes).toHaveLength(0)
@@ -622,4 +624,47 @@ test('structured WASM errors preserve their code through the worker', async ({ p
     const samples = (window as Window & { __DRAW_BENCHMARK_SAMPLES__?: Array<{ name: string; detail?: { code?: string } }> }).__DRAW_BENCHMARK_SAMPLES__ ?? []
     return samples.find(sample => sample.name === 'editor.workerError')?.detail?.code
   })).toBe('invalid_document_json')
+})
+
+test('text notes edit on creation, fit their content and drag without resizing', async ({ page }) => {
+  await waitForSample(page)
+  await addBlock(page, 'Text')
+  const editor = page.getByRole('textbox', { name: 'Edit diagram label' })
+  await expect(editor).toBeFocused()
+  const label = 'A longer note that should never be clipped\nSecond line'
+  await editor.fill(label)
+  const editingBounds = await editor.boundingBox()
+  const lineHeight = await editor.evaluate(element => Number.parseFloat(getComputedStyle(element).lineHeight))
+  expect(editingBounds!.height).toBeGreaterThanOrEqual(2 * lineHeight)
+  await editor.press('Control+Enter')
+  await expect(editor).toBeHidden()
+  const saved = (await saveDocument(page)).document
+  const note = saved.nodes.find((n: any) => n.label === label)
+  expect(note).toMatchObject({ kind: 'text', width: 42, height: 2 })
+
+  // Use the editor's exact screen position to grab the last character of a one-line note,
+  // where the old short-note resize handle intercepted ordinary drags.
+  await canvas(page).focus()
+  await page.keyboard.press('Enter')
+  await expect(editor).toBeVisible()
+  await editor.fill('Note')
+  await editor.press('Control+Enter')
+  await expect(page.getByLabel('W', { exact: true })).toHaveValue('4')
+  await page.keyboard.press('Enter')
+  const bounds = (await editor.boundingBox())!
+  await editor.press('Escape')
+  const zoom = Number((await page.locator('.zoom-value').innerText()).replace('%', '')) / 100
+  const start = { x: bounds.x + 1 + 3.5 * 9 * zoom, y: bounds.y + 1 + 9 * zoom }
+  await page.mouse.move(start.x, start.y)
+  await expect(canvas(page)).toHaveCSS('cursor', 'move')
+  await page.mouse.down()
+  await page.keyboard.down('Alt')
+  await page.mouse.move(start.x + 5 * 9 * zoom, start.y + 3 * 18 * zoom, { steps: 6 })
+  await page.screenshot({ path: 'test-results/text-note-drag.png' })
+  await page.mouse.up()
+  await page.keyboard.up('Alt')
+  const moved = (await saveDocument(page)).document.nodes.find((n: any) => n.id === note.id)
+  expect(moved).toMatchObject({ label: 'Note', x: note.x + 5, y: note.y + 3, width: 4, height: 1 })
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  expect((await saveDocument(page)).document.nodes.find((n: any) => n.id === note.id)).toMatchObject({ x: note.x, y: note.y, width: 4, height: 1 })
 })

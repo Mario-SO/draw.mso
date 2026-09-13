@@ -12,6 +12,12 @@ export function diffDocument(before: DiagramDocument, after: DiagramDocument): D
       addedEdges: after.edges.filter(e => !oldEdges.has(e.id)),
       updatedEdges: after.edges.filter(e => oldEdges.has(e.id) && JSON.stringify(oldEdges.get(e.id)) !== JSON.stringify(e)),
     };
+    const implicitOrder = [
+      ...before.nodes.filter(node => newNodes.has(node.id)).map(node => node.id),
+      ...after.nodes.filter(node => !oldNodes.has(node.id)).map(node => node.id),
+    ];
+    const finalOrder = after.nodes.map(node => node.id);
+    if (implicitOrder.some((id, index) => finalOrder[index] !== id)) patch.nodeOrder = finalOrder;
     if (before.title !== after.title) patch.title = after.title;
     return patch;
   }

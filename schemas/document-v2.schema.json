@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://draw.mso/schemas/document-v2.schema.json",
+  "title": "draw.mso document v2",
+  "type": "object", "additionalProperties": true,
+  "required": ["version", "title", "nodes", "edges"],
+  "properties": {
+    "version": { "const": 2 }, "title": { "$ref": "#/$defs/text" },
+    "nodes": { "type": "array", "maxItems": 2000, "items": { "$ref": "#/$defs/node" } },
+    "edges": { "type": "array", "maxItems": 4000, "items": { "$ref": "#/$defs/edge" } }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1 }, "text": { "type": "string" },
+    "side": { "enum": ["left", "right", "top", "bottom"] },
+    "point": { "type": "object", "additionalProperties": true, "required": ["x", "y"], "properties": {
+      "x": { "type": "integer", "minimum": -1000000, "maximum": 1000000 },
+      "y": { "type": "integer", "minimum": -1000000, "maximum": 1000000 }
+    }},
+    "node": { "type": "object", "additionalProperties": true,
+      "required": ["id", "kind", "label", "x", "y", "width", "height"], "properties": {
+        "id": { "$ref": "#/$defs/id" }, "kind": { "enum": ["service", "database", "queue", "boundary", "text", "rectangle"] },
+        "label": { "$ref": "#/$defs/text" }, "groupId": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+        "x": { "type": "integer", "minimum": -1000000, "maximum": 1000000 }, "y": { "type": "integer", "minimum": -1000000, "maximum": 1000000 },
+        "width": { "type": "integer", "minimum": 1, "maximum": 10000 }, "height": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "border": { "enum": ["none", "single", "double", "rounded", "heavy", "dashed"] },
+        "textAlign": { "enum": ["left", "center", "right"] }, "verticalAlign": { "enum": ["top", "middle", "bottom"] },
+        "padding": { "type": "integer", "minimum": 0, "maximum": 10000 }, "wrap": { "type": "boolean" },
+        "fill": { "type": "string", "minLength": 1, "maxLength": 1 }, "shadow": { "type": "boolean" },
+        "hidden": { "type": "boolean" }, "locked": { "type": "boolean" },
+        "textDirection": { "enum": ["right", "left", "down", "up"] },
+        "lineDirection": { "enum": ["down", "up", "right", "left"] }
+    }},
+    "edge": { "type": "object", "additionalProperties": true, "required": ["id", "from", "to", "label"], "properties": {
+      "id": { "$ref": "#/$defs/id" }, "from": { "type": "string" }, "to": { "type": "string" }, "label": { "$ref": "#/$defs/text" },
+      "fromSide": { "oneOf": [{ "$ref": "#/$defs/side" }, { "type": "null" }] }, "toSide": { "oneOf": [{ "$ref": "#/$defs/side" }, { "type": "null" }] },
+      "fromPoint": { "oneOf": [{ "$ref": "#/$defs/point" }, { "type": "null" }] }, "toPoint": { "oneOf": [{ "$ref": "#/$defs/point" }, { "type": "null" }] },
+      "startArrow": { "enum": ["none", "arrow", "diamond", "circle"] }, "endArrow": { "enum": ["none", "arrow", "diamond", "circle"] },
+      "lineStyle": { "enum": ["solid", "dashed"] }, "routing": { "enum": ["orthogonal", "staircase"] }
+    }}
+  }
+}

@@ -15,7 +15,7 @@ export interface Scene {
   /** Full terminal composition is optional because Canvas only uses displayCells. */
   cells?: Array<{ x: number; y: number; ch: string }>;
   bounds: { x: number; y: number; width: number; height: number };
-  routes: Array<{ id: string; points: GridPoint[] }>;
+  routes: Array<{ id: string; points: GridPoint[]; startArrow?: string; endArrow?: string; lineStyle?: string; routing?: string }>;
 }
 
 export interface Camera {
@@ -43,6 +43,7 @@ const LINE_MASK: Record<string, number> = {
   "├": 7, "┤": 13, "┬": 14, "┴": 11, "┼": 15,
   "╭": 6, "╮": 12, "╰": 3, "╯": 9,
   "║": 5, "═": 10, "╔": 6, "╗": 12, "╚": 3, "╝": 9,
+  "┃": 5, "━": 10, "┏": 6, "┓": 12, "┗": 3, "┛": 9,
   "┄": 10, "┆": 5, "┈": 10, "┊": 5,
 };
 
@@ -65,7 +66,15 @@ export class CanvasRenderer {
   private destroyed = false;
   private pendingInput: { kind: string; at: number } | null = null;
   private readonly displayCellIndex = new DisplayCellIndex();
-  private nodeKinds = new Map<string, DiagramNode['kind']>();
+  private nodeBorders = new Map<string, string>();
+  private selectedEdge: string | null = null;
+  private linePreview: { from: GridPoint; to: GridPoint } | null = null;
+  private drawingCursor: { point: GridPoint; character: string } | null = null;
+  setLinePreview(preview: { from: GridPoint; to: GridPoint } | null): void { this.linePreview = preview; this.scheduleRender(); }
+  setDrawingCursor(point: GridPoint | null, character: string): void { this.drawingCursor = point ? { point, character } : null; this.scheduleRender(); }
+
+
+  setSelectedEdge(id: string | null): void { this.selectedEdge = id; this.scheduleRender(); }
   private edgesById = new Map<string, DiagramEdge>();
   private routeBounds: Array<{ left: number; top: number; right: number; bottom: number }> = [];
   private previewIds = new Set<string>();
@@ -96,7 +105,7 @@ export class CanvasRenderer {
     this.scene = scene;
     this.document = doc;
     this.displayCellIndex.update(scene.displayCells);
-    this.nodeKinds = new Map(doc.nodes.map(node => [node.id, node.kind]));
+    this.nodeBorders = new Map(doc.nodes.map(node => [node.id, node.border ?? (node.kind === 'database' ? 'double' : 'single')]));
     this.edgesById = new Map(doc.edges.map(edge => [edge.id, edge]));
     this.routeBounds = scene.routes.map(route => {
       let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
@@ -258,7 +267,7 @@ export class CanvasRenderer {
     if (!this.document) return;
     const visible = this.visibleGridBounds();
     for (const node of this.document.nodes) {
-      if (!this.isNodeVisible(node, visible) || node.kind === "text" || node.kind === "boundary" || this.previewIds.has(node.id)) continue;
+      if (node.hidden || !this.isNodeVisible(node, visible) || node.kind === "text" || node.kind === "boundary" || node.border === "none" || this.previewIds.has(node.id)) continue;
       const p = this.gridToScreen(node.x + 0.5, node.y + 0.5);
       const width = (node.width - 1) * CELL_WIDTH * this._camera.zoom;
       const height = (node.height - 1) * CELL_HEIGHT * this._camera.zoom;
@@ -277,7 +286,9 @@ export class CanvasRenderer {
     ctx.lineWidth = Math.max(0.8, 1.15 * z);
     ctx.lineCap = "butt";
     ctx.lineJoin = "round";
-    const oldNodes = this.previews.map(preview => preview.node);
+    // The displayed scene may already contain an earlier worker preview. Hide
+    // those scene positions, not the original positions from pointer-down.
+    const oldNodes = this.document?.nodes.filter(node => this.previewIds.has(node.id)) ?? [];
     let activeStroke = '';
     const flushLines = () => {
       if (!activeStroke) return;
@@ -293,13 +304,21 @@ export class CanvasRenderer {
         const boundary = cell.ch === "┈" || cell.ch === "┊";
         const dashed = boundary || cell.ch === "┄" || cell.ch === "┆";
         const doubled = "║═╔╗╚╝".includes(cell.ch);
-        const stroke = boundary ? 'boundary' : dashed ? 'dashed' : 'solid';
+        const heavy = "┃━┏┓┗┛".includes(cell.ch);
+        const stroke = heavy ? 'heavy' : boundary ? 'boundary' : dashed ? 'dashed' : 'solid';
         if (stroke !== activeStroke) {
           flushLines();
           activeStroke = stroke;
+          ctx.lineWidth = Math.max(0.8, (heavy ? 2.4 : 1.15) * z);
           ctx.strokeStyle = boundary ? "#b7bdc6" : STROKE;
           ctx.setLineDash(boundary ? [2 * z, 4 * z] : dashed ? [3 * z, 3 * z] : []);
           ctx.beginPath();
+        }
+        if ("╭╮╰╯".includes(cell.ch)) {
+          const horizontal = mask & 2 ? hx : -hx, vertical = mask & 4 ? hy : -hy;
+          ctx.moveTo(p.x + horizontal, p.y);
+          ctx.quadraticCurveTo(p.x, p.y, p.x, p.y + vertical);
+          return;
         }
         for (const offset of doubled ? [-1.6 * z, 1.6 * z] : [0]) {
           const cx = p.x + (mask === 10 ? 0 : mask & 2 ? offset : -offset);
@@ -339,11 +358,11 @@ export class CanvasRenderer {
       if (!dx && !dy) continue;
       // Database strokes straddle the logical border; stop at the visible outside edge.
       const edge = this.edgesById.get(route.id);
-      if (edge && this.nodeKinds.get(edge.from) === "database") {
+      if (edge && this.nodeBorders.get(edge.from) === "double") {
         first.x += Math.sign(second.x - first.x) * 1.6 * z;
         first.y += Math.sign(second.y - first.y) * 1.6 * z;
       }
-      if (edge && this.nodeKinds.get(edge.to) === "database") {
+      if (edge && this.nodeBorders.get(edge.to) === "double") {
         tip.x -= dx * 1.6 * z; tip.y -= dy * 1.6 * z;
       }
       ctx.beginPath(); ctx.moveTo(first.x, first.y);
@@ -351,7 +370,7 @@ export class CanvasRenderer {
         const prev = points[i - 1], corner = points[i], next = points[i + 1];
         const incoming = Math.hypot(corner.x - prev.x, corner.y - prev.y);
         const outgoing = Math.hypot(next.x - corner.x, next.y - corner.y);
-        const radius = Math.min(5 * z, incoming / 2, outgoing / 2);
+        const radius = route.routing === 'staircase' ? 0 : Math.min(5 * z, incoming / 2, outgoing / 2);
         if (!incoming || !outgoing) continue;
         ctx.lineTo(corner.x - (corner.x - prev.x) / incoming * radius, corner.y - (corner.y - prev.y) / incoming * radius);
         ctx.quadraticCurveTo(corner.x, corner.y, corner.x + (next.x - corner.x) / outgoing * radius, corner.y + (next.y - corner.y) / outgoing * radius);
@@ -359,13 +378,25 @@ export class CanvasRenderer {
       ctx.lineTo(tip.x, tip.y);
       // A narrow halo breaks earlier paths at crossings, without inventing a junction.
       ctx.strokeStyle = BACKGROUND; ctx.lineWidth = Math.max(.8, 1.35 * z) + 4 * z; ctx.stroke();
-      ctx.strokeStyle = STROKE; ctx.lineWidth = Math.max(.8, 1.35 * z); ctx.stroke();
-      const length = Math.min(8 * z, Math.hypot(tip.x - before.x, tip.y - before.y));
-      const half = length * .45;
-      ctx.beginPath(); ctx.moveTo(tip.x, tip.y);
-      ctx.lineTo(tip.x - dx * length - dy * half, tip.y - dy * length + dx * half);
-      ctx.lineTo(tip.x - dx * length + dy * half, tip.y - dy * length - dx * half);
-      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = this.selectedEdge === route.id ? BLUE : STROKE; ctx.lineWidth = Math.max(.8, 1.35 * z); ctx.setLineDash((route.lineStyle ?? edge?.lineStyle) === 'dashed' ? [5 * z, 4 * z] : []); ctx.stroke(); ctx.setLineDash([]);
+      const paintMarker = (at: GridPoint, neighbor: GridPoint, marker: string) => {
+        if (marker === 'none') return;
+        const angle = Math.atan2(at.y - neighbor.y, at.x - neighbor.x);
+        const length = Math.min(8 * z, Math.hypot(at.x - neighbor.x, at.y - neighbor.y));
+        ctx.save(); ctx.translate(at.x, at.y); ctx.rotate(angle); ctx.setLineDash([]);
+        ctx.beginPath();
+        if (marker === 'circle') ctx.arc(-length / 2, 0, length / 2, 0, Math.PI * 2);
+        else if (marker === 'diamond') { ctx.moveTo(0, 0); ctx.lineTo(-length / 2, length / 2); ctx.lineTo(-length, 0); ctx.lineTo(-length / 2, -length / 2); ctx.closePath(); }
+        else { ctx.moveTo(0, 0); ctx.lineTo(-length, length * .45); ctx.lineTo(-length, -length * .45); ctx.closePath(); }
+        ctx.fillStyle = this.selectedEdge === route.id ? BLUE : STROKE; ctx.fill(); ctx.restore();
+      };
+      paintMarker(first, second, route.startArrow ?? edge?.startArrow ?? 'none');
+      paintMarker(tip, before, route.endArrow ?? edge?.endArrow ?? 'arrow');
+      if (this.selectedEdge === route.id) {
+        for (const point of [first, tip]) { ctx.beginPath(); ctx.arc(point.x, point.y, 4, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill(); ctx.strokeStyle = BLUE; ctx.stroke(); }
+      }
+      ctx.setLineDash([]);
+
     }
   }
 
@@ -373,21 +404,23 @@ export class CanvasRenderer {
     if (!this.document) return;
     const visible = this.visibleGridBounds();
     for (const node of this.document.nodes) {
+      if (node.hidden) continue;
       const selected = this.selected.has(node.id);
       const source = this.connectSource === node.id;
       if (this.previewIds.has(node.id)) continue;
       const hover = this.connectHover === node.id;
       if ((!selected && !source && !hover) || !this.isNodeVisible(node, visible)) continue;
       this.strokeNode(ctx, node, BLUE, selected);
-      if (selected && this.selected.size === 1) this.paintHandle(ctx, node.x + node.width - 0.5, node.y + node.height - 0.5);
+      if (selected && !node.locked && this.selected.size === 1 && (node.kind !== "text" || node.wrap)) this.paintResizeHandles(ctx, node);
       if (source || hover) this.paintPorts(ctx, node);
     }
   }
 
   private strokeNode(ctx: CanvasRenderingContext2D, node: DiagramNode, color: string, fill: boolean): void {
-    const p = this.gridToScreen(node.x + 0.5, node.y + 0.5);
-    const w = (node.width - 1) * CELL_WIDTH * this._camera.zoom;
-    const h = (node.height - 1) * CELL_HEIGHT * this._camera.zoom;
+    const inset = node.kind === "text" ? 0 : 0.5;
+    const p = this.gridToScreen(node.x + inset, node.y + inset);
+    const w = (node.width - inset * 2) * CELL_WIDTH * this._camera.zoom;
+    const h = (node.height - inset * 2) * CELL_HEIGHT * this._camera.zoom;
     if (fill) {
       ctx.fillStyle = "rgba(0, 122, 255, 0.035)";
       ctx.fillRect(p.x, p.y, w, h);
@@ -422,6 +455,12 @@ export class CanvasRenderer {
     }
   }
 
+  private paintResizeHandles(ctx: CanvasRenderingContext2D, node: DiagramNode): void {
+    const left = node.x + .5, right = node.x + node.width - .5, top = node.y + .5, bottom = node.y + node.height - .5;
+    const middleX = (left + right) / 2, middleY = (top + bottom) / 2;
+    for (const [x, y] of [[left, top], [middleX, top], [right, top], [right, middleY], [right, bottom], [middleX, bottom], [left, bottom], [left, middleY]]) this.paintHandle(ctx, x!, y!);
+  }
+
   private paintPreview(ctx: CanvasRenderingContext2D): void {
     for (const preview of this.previews) this.paintOnePreview(ctx, preview);
   }
@@ -439,6 +478,17 @@ export class CanvasRenderer {
     ctx.fillStyle = TEXT;
     ctx.font = `${14 * z}px "Geist Mono", ui-monospace, monospace`;
     ctx.textBaseline = "middle"; ctx.textAlign = "center";
+    if (node.kind === "text") {
+      // Match Rust's top-left, one-scalar-per-cell composition during movement.
+      node.label.split("\n").slice(0, node.height).forEach((line, row) => {
+        Array.from(line).slice(0, node.width).forEach((character, column) => {
+          const cell = this.gridToScreen(node.x + column + 0.5, node.y + row + 0.5);
+          ctx.fillText(character, cell.x, cell.y);
+        });
+      });
+      this.strokeNode(ctx, node, BLUE, false);
+      return;
+    }
     const lines = node.label.split("\n").slice(0, Math.max(1, node.height - 2));
     lines.forEach((line, i) => ctx.fillText(line.slice(0, node.width - 2), p.x + width / 2, p.y + height / 2 + (i - (lines.length - 1) / 2) * CELL_HEIGHT * z));
     if (this.previews.length === 1) this.paintHandle(ctx, node.x + node.width - 0.5, node.y + node.height - 0.5);
@@ -448,6 +498,21 @@ export class CanvasRenderer {
     const z = this._camera.zoom;
     ctx.save();
     ctx.lineWidth = 1; ctx.strokeStyle = BLUE;
+    if (this.linePreview) {
+      const from = this.gridToScreen(this.linePreview.from.x + .5, this.linePreview.from.y + .5);
+      const to = this.gridToScreen(this.linePreview.to.x + .5, this.linePreview.to.y + .5);
+      ctx.setLineDash([5, 3]); ctx.beginPath(); ctx.moveTo(from.x, from.y);
+      ctx.lineTo((from.x + to.x) / 2, from.y); ctx.lineTo((from.x + to.x) / 2, to.y); ctx.lineTo(to.x, to.y); ctx.stroke(); ctx.setLineDash([]);
+      for (const point of [from, to]) { ctx.beginPath(); ctx.arc(point.x, point.y, 4, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill(); ctx.stroke(); }
+    }
+    if (this.drawingCursor) {
+      const point = this.gridToScreen(this.drawingCursor.point.x, this.drawingCursor.point.y);
+      ctx.fillStyle = '#007aff12'; ctx.fillRect(point.x, point.y, CELL_WIDTH * z, CELL_HEIGHT * z);
+      ctx.strokeRect(point.x, point.y, CELL_WIDTH * z, CELL_HEIGHT * z);
+      ctx.font = `${14 * z}px "Geist Mono", monospace`; ctx.fillStyle = BLUE; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(this.drawingCursor.character, point.x + CELL_WIDTH * z + 5, point.y);
+    }
+
     if (this.selected.size > 1 && this.document && !this.previews.length) {
       const nodes = this.document.nodes.filter(n => this.selected.has(n.id));
       if (nodes.length) {

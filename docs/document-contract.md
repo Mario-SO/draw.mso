@@ -1,6 +1,6 @@
 # Document and command contract
 
-The portable `.mso` format is versioned JSON. Version 1 is described by
+The portable `.mso` format is versioned JSON. Versions 1 and 2 are described by
 [`schemas/document-v1.schema.json`](../schemas/document-v1.schema.json). Atomic
 edits use [`schemas/document-patch-v1.schema.json`](../schemas/document-patch-v1.schema.json).
 The Rust core is the authoritative validator; JSON Schema describes the portable
@@ -10,13 +10,13 @@ characters, byte limits, and total bounds.
 Document, node, and edge objects tolerate unknown fields when reading, and
 normalized output drops them. This preserves forward-compatible reads. Patch
 objects reject unknown fields so a misspelled operation cannot silently do
-nothing. Optional `groupId`, `fromSide`, and `toSide` values may be omitted or
-`null`; normalized output omits them when unset.
+nothing. Optional fields may be omitted; nullable endpoint and grouping fields
+also accept `null`. Normalized output omits optional fields when unset.
 
 ## Versioning and migration
 
 `version` identifies the document contract, not the application release. The
-current and only defined version is `1`; there is no implied version for a JSON
+current version is `2`; there is no implied version for a JSON
 object that omits it. Readers reject unsupported versions with
 `unsupported_version` and never partially load them.
 
@@ -26,7 +26,36 @@ persisted field, changes an existing field's meaning, or removes a valid v1 valu
 requires a new schema and an explicit, deterministic migration in the Rust core.
 Migrations must preserve stable node, edge, and group IDs. Writers emit the
 current version only after a complete migration validates; failed migrations
-leave the source document untouched. No legacy migrations are defined yet.
+leave the source document untouched.
+
+Version 1 input migrates deterministically to version 2. The version changes and
+borderless text receives a space fill when it has no explicit fill, preserving
+v1's opaque blank cells. Other omitted styles preserve v1 rendering: service uses a single
+border, database a double border, queue and boundary dashed borders, and text no
+border. Text defaults to left/top alignment; bordered nodes default to
+center/middle. Edges default to no start marker, an arrow end marker, a solid
+line, and orthogonal routing. Writers emit version 2.
+
+Version 2 adds the `rectangle` node kind. Nodes may specify `border` (`none`,
+`single`, `double`, `rounded`, `heavy`, or `dashed`), `textAlign`,
+`verticalAlign`, nonnegative integer `padding`, boolean `wrap`, a one-scalar
+`fill`, and boolean `shadow`, `hidden`, and `locked`. Hidden nodes and their
+incident edges are omitted from composition; `locked` is persisted interaction
+metadata. Edges may specify `startArrow` and `endArrow`
+(`none`, `arrow`, `diamond`, or `circle`), `lineStyle` (`solid` or `dashed`),
+and `routing` (`orthogonal` or `staircase`).
+
+`textDirection` controls character sweep (`right`, `left`, `down`, or `up`) and
+`lineDirection` controls the perpendicular progression of lines. They default to
+right/down; vertical text defaults its line direction to right. Parallel
+character and line directions are invalid. Wrapping uses the available capacity
+along the character direction, then alignment positions the resulting physical
+text block within the node.
+
+`from` and `to` remain required strings. A nonempty endpoint names an existing
+node and must not have the corresponding point. An empty endpoint is free and
+requires `fromPoint` or `toPoint` with integer `x` and `y`; it must not specify
+the corresponding side.
 
 ## Atomic patches
 
@@ -36,6 +65,10 @@ existing entities; additions must use unused IDs. The core applies a patch to a
 copy, validates the complete resulting document, and commits one undo entry only
 when every operation succeeds. Removing a node therefore requires the same patch
 to remove or redirect its incident edges.
+
+`nodeOrder`, when present, is the complete permutation of final node IDs after
+the patch's adds, updates, and removals. Its order is back-to-front composition
+order. Omitting it preserves the current ordering.
 
 An omitted `title` or an explicit `"title": null` leaves the title unchanged.
 Optional arrays must be omitted or contain arrays; `null` is not accepted for
@@ -81,3 +114,5 @@ In addition to the core codes above, the CLI adapter reports `usage`,
 `input_read_failed`, `unknown_schema`, `unknown_export_format`, and
 `ambiguous_stdin`. These identify invocation and input transport failures before
 the core processes a document or patch.
+
+The retired prototype ellipse and diamond node names are accepted only as read aliases for `rectangle`. Normalized files contain boxes; their geometry, text, IDs, and connections are preserved.

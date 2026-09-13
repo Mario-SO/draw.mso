@@ -20,9 +20,9 @@ const MAX_HISTORY: usize = 100;
 const MAX_ROUTING_OBSTACLES: usize = 64;
 const MAX_ROUTING_LANES: usize = 16;
 
-pub const DOCUMENT_VERSION: u32 = 1;
-pub const DOCUMENT_SCHEMA_JSON: &str = include_str!("../../../schemas/document-v1.schema.json");
-pub const PATCH_SCHEMA_JSON: &str = include_str!("../../../schemas/document-patch-v1.schema.json");
+pub const DOCUMENT_VERSION: u32 = 2;
+pub const DOCUMENT_SCHEMA_JSON: &str = include_str!("../../../schemas/document-v2.schema.json");
+pub const PATCH_SCHEMA_JSON: &str = include_str!("../../../schemas/document-patch-v2.schema.json");
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Document {
@@ -43,6 +43,40 @@ pub struct Node {
     pub y: i32,
     pub width: i32,
     pub height: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border: Option<BorderStyle>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "textAlign")]
+    pub text_align: Option<TextAlign>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "verticalAlign"
+    )]
+    pub vertical_align: Option<VerticalAlign>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub padding: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "wrap")]
+    pub wrap_text: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locked: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "textDirection"
+    )]
+    pub text_direction: Option<Direction>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "lineDirection"
+    )]
+    pub line_direction: Option<Direction>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -53,6 +87,51 @@ pub enum NodeKind {
     Queue,
     Boundary,
     Text,
+    // Read shapes from the short-lived prototype as boxes.
+    #[serde(alias = "ellipse", alias = "diamond")]
+    Rectangle,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum BorderStyle {
+    None,
+    Single,
+    Double,
+    Rounded,
+    Heavy,
+    Dashed,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TextAlign {
+    Left,
+    Center,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum VerticalAlign {
+    Top,
+    Middle,
+    Bottom,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Direction {
+    Right,
+    Left,
+    Down,
+    Up,
+}
+
+impl Direction {
+    fn is_horizontal(self) -> bool {
+        matches!(self, Self::Right | Self::Left)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -65,6 +144,43 @@ pub struct Edge {
     pub from_side: Option<Side>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "toSide")]
     pub to_side: Option<Side>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "fromPoint")]
+    pub from_point: Option<Point>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "toPoint")]
+    pub to_point: Option<Point>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "startArrow"
+    )]
+    pub start_arrow: Option<ArrowStyle>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "endArrow")]
+    pub end_arrow: Option<ArrowStyle>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "lineStyle")]
+    pub line_style: Option<LineStyle>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing: Option<RoutingStyle>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ArrowStyle {
+    None,
+    Arrow,
+    Diamond,
+    Circle,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LineStyle {
+    Solid,
+    Dashed,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RoutingStyle {
+    Orthogonal,
+    Staircase,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -84,6 +200,8 @@ pub struct DocumentPatch {
     pub added_edges: Vec<Edge>,
     #[serde(default)]
     pub title: Option<String>,
+    #[serde(default)]
+    pub node_order: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -122,6 +240,13 @@ pub struct Bounds {
 pub struct Route {
     pub id: String,
     pub points: Vec<Point>,
+    #[serde(rename = "startArrow")]
+    pub start_arrow: ArrowStyle,
+    #[serde(rename = "endArrow")]
+    pub end_arrow: ArrowStyle,
+    #[serde(rename = "lineStyle")]
+    pub line_style: LineStyle,
+    pub routing: RoutingStyle,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -200,21 +325,47 @@ impl Display for DiagramError {
 impl Error for DiagramError {}
 
 pub fn parse_document(json: &str) -> Result<Document, DiagramError> {
-    let document: Document = serde_json::from_str(json).map_err(|e| {
+    let mut document: Document = serde_json::from_str(json).map_err(|e| {
         DiagramError::with_code(
             ErrorCode::InvalidDocumentJson,
             format!("invalid document JSON: {e}"),
         )
     })?;
+    migrate_document(&mut document)?;
     validate_document(&document)?;
     Ok(document)
 }
 
+fn migrate_document(document: &mut Document) -> Result<(), DiagramError> {
+    match document.version {
+        1 => {
+            for node in &mut document.nodes {
+                if node.kind == NodeKind::Text
+                    && node.fill.is_none()
+                    && matches!(node.border, None | Some(BorderStyle::None))
+                {
+                    node.fill = Some(" ".into());
+                }
+            }
+            document.version = DOCUMENT_VERSION;
+            Ok(())
+        }
+        DOCUMENT_VERSION => Ok(()),
+        version => Err(DiagramError::with_code(
+            ErrorCode::UnsupportedVersion,
+            format!("unsupported document version {version}; expected 1 or {DOCUMENT_VERSION}"),
+        )),
+    }
+}
+
 pub fn validate_document(doc: &Document) -> Result<(), DiagramError> {
-    if doc.version != 1 {
+    if doc.version != DOCUMENT_VERSION {
         return Err(DiagramError::with_code(
             ErrorCode::UnsupportedVersion,
-            format!("unsupported document version {}; expected 1", doc.version),
+            format!(
+                "unsupported document version {}; expected {DOCUMENT_VERSION}",
+                doc.version
+            ),
         ));
     }
     check_text("title", &doc.title)?;
@@ -238,6 +389,36 @@ pub fn validate_document(doc: &Document) -> Result<(), DiagramError> {
             )));
         }
         check_text("node label", &node.label)?;
+        if let Some(padding) = node.padding
+            && !(0..=MAX_DIMENSION).contains(&padding)
+        {
+            return Err(DiagramError::new(format!(
+                "node {:?} padding must be between 0 and {MAX_DIMENSION}",
+                node.id
+            )));
+        }
+        if let Some(fill) = &node.fill
+            && (fill.chars().count() != 1 || fill.chars().any(char::is_control))
+        {
+            return Err(DiagramError::new(format!(
+                "node {:?} fill must be one non-control Unicode scalar",
+                node.id
+            )));
+        }
+        let text_direction = node.text_direction.unwrap_or(Direction::Right);
+        let line_direction = node
+            .line_direction
+            .unwrap_or(if text_direction.is_horizontal() {
+                Direction::Down
+            } else {
+                Direction::Right
+            });
+        if text_direction.is_horizontal() == line_direction.is_horizontal() {
+            return Err(DiagramError::new(format!(
+                "node {:?} textDirection and lineDirection must be perpendicular",
+                node.id
+            )));
+        }
         if let Some(group_id) = &node.group_id {
             check_id("node group", group_id)?;
         }
@@ -278,24 +459,101 @@ pub fn validate_document(doc: &Document) -> Result<(), DiagramError> {
             )));
         }
         check_text("edge label", &edge.label)?;
-        if !node_ids.contains(edge.from.as_str()) {
+        if edge.from.is_empty() {
+            if edge.from_point.is_none() || edge.from_side.is_some() {
+                return Err(DiagramError::new(format!(
+                    "edge {:?} free source requires fromPoint and no fromSide",
+                    edge.id
+                )));
+            }
+        } else if edge.from_point.is_some() || !node_ids.contains(edge.from.as_str()) {
             return Err(DiagramError::new(format!(
-                "edge {:?} references missing source {:?}",
+                "edge {:?} has an invalid or missing source {:?}",
                 edge.id, edge.from
             )));
         }
-        if !node_ids.contains(edge.to.as_str()) {
+        if edge.to.is_empty() {
+            if edge.to_point.is_none() || edge.to_side.is_some() {
+                return Err(DiagramError::new(format!(
+                    "edge {:?} free target requires toPoint and no toSide",
+                    edge.id
+                )));
+            }
+        } else if edge.to_point.is_some() || !node_ids.contains(edge.to.as_str()) {
             return Err(DiagramError::new(format!(
-                "edge {:?} references missing target {:?}",
+                "edge {:?} has an invalid or missing target {:?}",
                 edge.id, edge.to
             )));
         }
+        for (name, point) in [("fromPoint", edge.from_point), ("toPoint", edge.to_point)] {
+            if let Some(point) = point
+                && (!(-MAX_COORDINATE..=MAX_COORDINATE).contains(&point.x)
+                    || !(-MAX_COORDINATE..=MAX_COORDINATE).contains(&point.y))
+            {
+                return Err(DiagramError::new(format!(
+                    "edge {:?} {name} is out of range",
+                    edge.id
+                )));
+            }
+        }
     }
-    if !doc.nodes.is_empty() {
-        let min_x = doc.nodes.iter().map(|n| n.x).min().unwrap();
-        let min_y = doc.nodes.iter().map(|n| n.y).min().unwrap();
-        let max_x = doc.nodes.iter().map(|n| n.x + n.width).max().unwrap();
-        let max_y = doc.nodes.iter().map(|n| n.y + n.height).max().unwrap();
+    let visible_node_ids: HashSet<&str> = doc
+        .nodes
+        .iter()
+        .filter(|node| !node.hidden.unwrap_or(false))
+        .map(|node| node.id.as_str())
+        .collect();
+    let visible_edges = doc.edges.iter().filter(|edge| {
+        (edge.from.is_empty() || visible_node_ids.contains(edge.from.as_str()))
+            && (edge.to.is_empty() || visible_node_ids.contains(edge.to.as_str()))
+    });
+    let point_xs = visible_edges
+        .clone()
+        .flat_map(|edge| [edge.from_point, edge.to_point])
+        .flatten()
+        .map(|p| p.x);
+    let point_ys = visible_edges
+        .clone()
+        .flat_map(|edge| [edge.from_point, edge.to_point])
+        .flatten()
+        .map(|p| p.y);
+    if !visible_node_ids.is_empty()
+        || visible_edges
+            .clone()
+            .any(|e| e.from_point.is_some() || e.to_point.is_some())
+    {
+        let min_x = doc
+            .nodes
+            .iter()
+            .filter(|n| !n.hidden.unwrap_or(false))
+            .map(|n| n.x)
+            .chain(point_xs.clone())
+            .min()
+            .unwrap();
+        let min_y = doc
+            .nodes
+            .iter()
+            .filter(|n| !n.hidden.unwrap_or(false))
+            .map(|n| n.y)
+            .chain(point_ys.clone())
+            .min()
+            .unwrap();
+        let max_x = doc
+            .nodes
+            .iter()
+            .filter(|n| !n.hidden.unwrap_or(false))
+            .map(|n| n.x + n.width)
+            .chain(point_xs.map(|x| x + 1))
+            .max()
+            .unwrap();
+        let max_y = doc
+            .nodes
+            .iter()
+            .filter(|n| !n.hidden.unwrap_or(false))
+            .map(|n| n.y + n.height)
+            .chain(point_ys.map(|y| y + 1))
+            .max()
+            .unwrap();
         let area = i64::from(max_x - min_x) * i64::from(max_y - min_y);
         if area > MAX_EXPORT_AREA {
             return Err(DiagramError::new(format!(
@@ -405,6 +663,29 @@ fn apply_document_patch_inner(
         }
         doc.edges.push(edge);
     }
+    if let Some(order) = patch.node_order {
+        if order.len() != doc.nodes.len() {
+            return Err(DiagramError::new(
+                "nodeOrder must contain every final node id exactly once",
+            ));
+        }
+        let positions: HashMap<&str, usize> = order
+            .iter()
+            .enumerate()
+            .map(|(index, id)| (id.as_str(), index))
+            .collect();
+        if positions.len() != order.len()
+            || doc
+                .nodes
+                .iter()
+                .any(|node| !positions.contains_key(node.id.as_str()))
+        {
+            return Err(DiagramError::new(
+                "nodeOrder must contain every final node id exactly once",
+            ));
+        }
+        doc.nodes.sort_by_key(|node| positions[node.id.as_str()]);
+    }
     if let Some(title) = patch.title {
         doc.title = title;
     }
@@ -484,6 +765,7 @@ struct RouteCacheKey {
     to: RouteNodeKey,
     from_side: Option<Side>,
     to_side: Option<Side>,
+    routing: RoutingStyle,
     bounds: RoutingBounds,
     routing_nodes: Vec<RouteNodeKey>,
 }
@@ -507,6 +789,7 @@ impl RouteCacheKey {
             && self.to.matches(to)
             && self.from_side == edge.from_side
             && self.to_side == edge.to_side
+            && self.routing == edge.routing.unwrap_or(RoutingStyle::Orthogonal)
             && self.bounds == bounds
             && self.routing_nodes.len() == routing_nodes.len()
             && self
@@ -526,7 +809,8 @@ impl Engine {
             route_cache: RefCell::new(HashMap::new()),
         })
     }
-    pub fn from_document(document: Document) -> Result<Self, DiagramError> {
+    pub fn from_document(mut document: Document) -> Result<Self, DiagramError> {
+        migrate_document(&mut document)?;
         validate_document(&document)?;
         Ok(Self {
             document,
@@ -979,7 +1263,9 @@ fn cached_route(
     {
         return points;
     }
-    let points = if from.id == to.id && edge.from_side.is_none() && edge.to_side.is_none() {
+    let points = if edge.routing == Some(RoutingStyle::Staircase) {
+        staircase_route(from, to, nodes, edge.from_side, edge.to_side, bounds)
+    } else if from.id == to.id && edge.from_side.is_none() && edge.to_side.is_none() {
         route_with_bounds(from, to, nodes, edge.from_side, edge.to_side, bounds)
     } else {
         route_with_selected(
@@ -996,6 +1282,7 @@ fn cached_route(
         to: to.into(),
         from_side: edge.from_side,
         to_side: edge.to_side,
+        routing: edge.routing.unwrap_or(RoutingStyle::Orthogonal),
         bounds,
         routing_nodes: routing_nodes.into_iter().map(RouteNodeKey::from).collect(),
     };
@@ -1006,6 +1293,46 @@ fn cached_route(
             points: points.clone(),
         },
     );
+    points
+}
+
+fn staircase_route(
+    from: &Node,
+    to: &Node,
+    nodes: &[Node],
+    from_side: Option<Side>,
+    to_side: Option<Side>,
+    bounds: RoutingBounds,
+) -> Vec<Point> {
+    let base = route_with_bounds(from, to, nodes, from_side, to_side, bounds);
+    if base.len() < 2 {
+        return base;
+    }
+    let start = base[0];
+    let end = *base.last().unwrap();
+    let free_from = from.id == "__free_from";
+    let free_to = to.id == "__free_to";
+    let middle_start = if free_from { start } else { base[1] };
+    let middle_end = if free_to { end } else { base[base.len() - 2] };
+    let mut points = vec![start];
+    if middle_start != start {
+        points.push(middle_start);
+    }
+    let mut cursor = middle_start;
+    let sx = (middle_end.x - cursor.x).signum();
+    let sy = (middle_end.y - cursor.y).signum();
+    while cursor.x != middle_end.x && cursor.y != middle_end.y {
+        cursor.x += sx;
+        points.push(cursor);
+        cursor.y += sy;
+        points.push(cursor);
+    }
+    if cursor != middle_end {
+        points.push(middle_end);
+    }
+    if middle_end != end {
+        points.push(end);
+    }
     points
 }
 
@@ -1026,6 +1353,21 @@ fn routing_bounds(nodes: &[Node], fallback: &Node) -> RoutingBounds {
     bounds.max_x += 2;
     bounds.min_y -= 2;
     bounds.max_y += 2;
+    bounds
+}
+
+fn routing_bounds_with_endpoints(nodes: &[Node], from: &Node, to: &Node) -> RoutingBounds {
+    let mut bounds = routing_bounds(nodes, from);
+    bounds.min_x = bounds.min_x.min(from.x - 2).min(to.x - 2);
+    bounds.max_x = bounds
+        .max_x
+        .max(from.x + from.width + 1)
+        .max(to.x + to.width + 1);
+    bounds.min_y = bounds.min_y.min(from.y - 2).min(to.y - 2);
+    bounds.max_y = bounds
+        .max_y
+        .max(from.y + from.height + 1)
+        .max(to.y + to.height + 1);
     bounds
 }
 
@@ -1249,60 +1591,137 @@ fn compose_cached(
     ascii: bool,
     cache: Option<&RefCell<HashMap<String, RouteCacheEntry>>>,
 ) -> Scene {
-    let nodes: HashMap<&str, &Node> = doc.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
-    let route_bounds = doc
+    let visible_nodes: Vec<Node> = doc
         .nodes
-        .first()
-        .map(|fallback| routing_bounds(&doc.nodes, fallback));
-    let routes: Vec<Route> = doc
+        .iter()
+        .filter(|n| !n.hidden.unwrap_or(false))
+        .cloned()
+        .collect();
+    let nodes: HashMap<&str, &Node> = visible_nodes.iter().map(|n| (n.id.as_str(), n)).collect();
+    let visible_edges: Vec<&Edge> = doc
         .edges
         .iter()
-        .map(|e| {
-            let from = nodes[&e.from.as_str()];
-            let to = nodes[&e.to.as_str()];
-            let bounds = route_bounds.unwrap_or_else(|| routing_bounds(&doc.nodes, from));
+        .filter(|edge| {
+            (edge.from.is_empty() || nodes.contains_key(edge.from.as_str()))
+                && (edge.to.is_empty() || nodes.contains_key(edge.to.as_str()))
+        })
+        .collect();
+    let route_bounds = visible_nodes
+        .first()
+        .map(|fallback| routing_bounds(&visible_nodes, fallback));
+    let routes: Vec<Route> = visible_edges
+        .iter()
+        .map(|&e| {
+            let free_from;
+            let free_to;
+            let from = if e.from.is_empty() {
+                let p = e.from_point.expect("validated free source");
+                free_from = free_endpoint_node("__free_from", p);
+                &free_from
+            } else {
+                nodes[&e.from.as_str()]
+            };
+            let to = if e.to.is_empty() {
+                let p = e.to_point.expect("validated free target");
+                free_to = free_endpoint_node("__free_to", p);
+                &free_to
+            } else {
+                nodes[&e.to.as_str()]
+            };
+            let bounds = if e.from.is_empty() || e.to.is_empty() {
+                routing_bounds_with_endpoints(&visible_nodes, from, to)
+            } else {
+                route_bounds.unwrap_or_else(|| routing_bounds(&visible_nodes, from))
+            };
             Route {
                 id: e.id.clone(),
-                points: cache.map_or_else(
-                    || route_with_bounds(from, to, &doc.nodes, e.from_side, e.to_side, bounds),
-                    |cache| cached_route(e, from, to, &doc.nodes, bounds, cache),
-                ),
+                points: if e.from.is_empty() || e.to.is_empty() {
+                    if e.routing == Some(RoutingStyle::Staircase) {
+                        staircase_route(from, to, &visible_nodes, e.from_side, e.to_side, bounds)
+                    } else {
+                        route_with_bounds(from, to, &visible_nodes, e.from_side, e.to_side, bounds)
+                    }
+                } else {
+                    cache.map_or_else(
+                        || {
+                            if e.routing == Some(RoutingStyle::Staircase) {
+                                staircase_route(
+                                    from,
+                                    to,
+                                    &visible_nodes,
+                                    e.from_side,
+                                    e.to_side,
+                                    bounds,
+                                )
+                            } else {
+                                route_with_bounds(
+                                    from,
+                                    to,
+                                    &visible_nodes,
+                                    e.from_side,
+                                    e.to_side,
+                                    bounds,
+                                )
+                            }
+                        },
+                        |cache| cached_route(e, from, to, &visible_nodes, bounds, cache),
+                    )
+                },
+                start_arrow: e.start_arrow.unwrap_or(ArrowStyle::None),
+                end_arrow: e.end_arrow.unwrap_or(ArrowStyle::Arrow),
+                line_style: e.line_style.unwrap_or(LineStyle::Solid),
+                routing: e.routing.unwrap_or(RoutingStyle::Orthogonal),
             }
         })
         .collect();
     if let Some(cache) = cache {
-        let live_edges: HashSet<&str> = doc.edges.iter().map(|edge| edge.id.as_str()).collect();
+        let live_edges: HashSet<&str> = visible_edges.iter().map(|edge| edge.id.as_str()).collect();
         cache
             .borrow_mut()
             .retain(|edge_id, _| live_edges.contains(edge_id.as_str()));
     }
     let mut map = BTreeMap::<(i32, i32), char>::new();
     for r in &routes {
-        draw_route(&mut map, &r.points, ascii);
+        draw_route_styled(&mut map, &r.points, ascii, r.line_style);
     }
-    for (edge, route) in doc.edges.iter().zip(&routes) {
-        draw_edge_label(&mut map, edge, route, &doc.nodes, ascii);
+    for (edge, route) in visible_edges.iter().zip(&routes) {
+        draw_edge_label(&mut map, edge, route, &visible_nodes, ascii);
     }
-    for node in &doc.nodes {
+    for node in &visible_nodes {
         draw_node(&mut map, node, ascii);
     }
     let mut display_map = BTreeMap::<(i32, i32), char>::new();
-    for (edge, route) in doc.edges.iter().zip(&routes) {
-        draw_edge_label(&mut display_map, edge, route, &doc.nodes, ascii);
+    for (edge, route) in visible_edges.iter().zip(&routes) {
+        draw_edge_label(&mut display_map, edge, route, &visible_nodes, ascii);
     }
-    for node in &doc.nodes {
+    for node in &visible_nodes {
         draw_node(&mut display_map, node, ascii);
     }
     // Keep the node border intact and put the arrowhead on the final outside cell.
     for r in &routes {
-        if r.points.len() >= 2 {
+        if r.points.len() >= 2 && r.end_arrow != ArrowStyle::None {
             let a = r.points[r.points.len() - 2];
             let b = r.points[r.points.len() - 1];
             let arrow_cell = Point {
                 x: b.x - (b.x - a.x).signum(),
                 y: b.y - (b.y - a.y).signum(),
             };
-            map.insert((arrow_cell.y, arrow_cell.x), arrow(a, b, ascii));
+            map.insert(
+                (arrow_cell.y, arrow_cell.x),
+                marker(a, b, r.end_arrow, ascii),
+            );
+        }
+        if r.points.len() >= 2 && r.start_arrow != ArrowStyle::None {
+            let a = r.points[1];
+            let b = r.points[0];
+            let marker_cell = Point {
+                x: b.x - (b.x - a.x).signum(),
+                y: b.y - (b.y - a.y).signum(),
+            };
+            map.insert(
+                (marker_cell.y, marker_cell.x),
+                marker(a, b, r.start_arrow, ascii),
+            );
         }
     }
     let cells = map
@@ -1330,27 +1749,81 @@ fn compose_cached(
     }
 }
 
+fn free_endpoint_node(id: &str, point: Point) -> Node {
+    Node {
+        id: id.into(),
+        kind: NodeKind::Text,
+        label: String::new(),
+        group_id: None,
+        x: point.x,
+        y: point.y,
+        width: 1,
+        height: 1,
+        border: None,
+        text_align: None,
+        vertical_align: None,
+        padding: None,
+        wrap_text: None,
+        fill: None,
+        shadow: None,
+        hidden: None,
+        locked: None,
+        text_direction: None,
+        line_direction: None,
+    }
+}
+
 fn draw_node(map: &mut BTreeMap<(i32, i32), char>, n: &Node, ascii: bool) {
-    if n.kind == NodeKind::Text {
-        for y in n.y..n.y + n.height {
-            for x in n.x..n.x + n.width {
-                map.remove(&(y, x));
+    let border = n.border.unwrap_or(match n.kind {
+        NodeKind::Text => BorderStyle::None,
+        NodeKind::Database => BorderStyle::Double,
+        NodeKind::Queue | NodeKind::Boundary => BorderStyle::Dashed,
+        _ => BorderStyle::Single,
+    });
+    if border == BorderStyle::None {
+        if let Some(fill) = n.fill.as_ref().and_then(|fill| fill.chars().next()) {
+            for y in n.y..n.y + n.height {
+                for x in n.x..n.x + n.width {
+                    map.insert((y, x), output_char(fill, ascii));
+                }
             }
         }
-        for (dy, line) in n.label.lines().take(n.height as usize).enumerate() {
-            for (dx, ch) in line.chars().take(n.width as usize).enumerate() {
-                map.insert((n.y + dy as i32, n.x + dx as i32), output_char(ch, ascii));
+        if n.shadow.unwrap_or(false) {
+            let shadow = if ascii { '#' } else { '░' };
+            let right = n.x + n.width - 1;
+            let bottom = n.y + n.height - 1;
+            for x in n.x + 1..=right + 1 {
+                map.entry((bottom + 1, x)).or_insert(shadow);
+            }
+            for y in n.y + 1..=bottom + 1 {
+                map.entry((y, right + 1)).or_insert(shadow);
             }
         }
+        let padding = n
+            .padding
+            .unwrap_or(0)
+            .min(n.width.max(0) / 2)
+            .min(n.height.max(0) / 2);
+        draw_node_text(
+            map,
+            n,
+            ascii,
+            n.x + padding,
+            n.y + padding,
+            n.width - padding * 2,
+            n.height - padding * 2,
+        );
         return;
     }
     let (tl, tr, bl, br, h, v) = if ascii {
         ('+', '+', '+', '+', '-', '|')
     } else {
-        match n.kind {
-            NodeKind::Database => ('╔', '╗', '╚', '╝', '═', '║'),
-            NodeKind::Queue => ('┌', '┐', '└', '┘', '┄', '┆'),
-            NodeKind::Boundary => ('┌', '┐', '└', '┘', '┈', '┊'),
+        match border {
+            BorderStyle::Double => ('╔', '╗', '╚', '╝', '═', '║'),
+            BorderStyle::Rounded => ('╭', '╮', '╰', '╯', '─', '│'),
+            BorderStyle::Heavy => ('┏', '┓', '┗', '┛', '━', '┃'),
+            BorderStyle::Dashed if n.kind == NodeKind::Boundary => ('┌', '┐', '└', '┘', '┈', '┊'),
+            BorderStyle::Dashed => ('┌', '┐', '└', '┘', '┄', '┆'),
             _ => ('┌', '┐', '└', '┘', '─', '│'),
         }
     };
@@ -1359,7 +1832,11 @@ fn draw_node(map: &mut BTreeMap<(i32, i32), char>, n: &Node, ascii: bool) {
     if n.kind != NodeKind::Boundary {
         for y in n.y + 1..bottom {
             for x in n.x + 1..right {
-                map.remove(&(y, x));
+                if let Some(fill) = n.fill.as_ref().and_then(|s| s.chars().next()) {
+                    map.insert((y, x), output_char(fill, ascii));
+                } else {
+                    map.remove(&(y, x));
+                }
             }
         }
     }
@@ -1375,24 +1852,124 @@ fn draw_node(map: &mut BTreeMap<(i32, i32), char>, n: &Node, ascii: bool) {
     map.insert((n.y, right), tr);
     map.insert((bottom, n.x), bl);
     map.insert((bottom, right), br);
+    if n.shadow.unwrap_or(false) {
+        for x in n.x + 1..=right + 1 {
+            map.entry((bottom + 1, x))
+                .or_insert(if ascii { '#' } else { '░' });
+        }
+        for y in n.y + 1..=bottom + 1 {
+            map.entry((y, right + 1))
+                .or_insert(if ascii { '#' } else { '░' });
+        }
+    }
     if n.width > 2 && n.height > 2 {
-        let mut lines: Vec<String> = n
-            .label
-            .replace('\r', "")
-            .lines()
-            .map(str::to_owned)
-            .collect();
-        lines.truncate((n.height - 2) as usize);
-        let start_y = n.y + 1 + ((n.height - 2 - lines.len() as i32) / 2);
-        for (line_index, line) in lines.iter().enumerate() {
-            let chars: Vec<char> = line.chars().take((n.width - 2) as usize).collect();
-            let start_x = n.x + 1 + ((n.width - 2 - chars.len() as i32) / 2);
-            for (offset, ch) in chars.into_iter().enumerate() {
-                map.insert(
-                    (start_y + line_index as i32, start_x + offset as i32),
-                    output_char(ch, ascii),
-                );
-            }
+        let padding = n
+            .padding
+            .unwrap_or(0)
+            .min((n.width - 2).max(0) / 2)
+            .min((n.height - 2).max(0) / 2);
+        draw_node_text(
+            map,
+            n,
+            ascii,
+            n.x + 1 + padding,
+            n.y + 1 + padding,
+            n.width - 2 - padding * 2,
+            n.height - 2 - padding * 2,
+        );
+    }
+}
+
+fn draw_node_text(
+    map: &mut BTreeMap<(i32, i32), char>,
+    n: &Node,
+    ascii: bool,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) {
+    if width <= 0 || height <= 0 {
+        return;
+    }
+    let default_left_top = n.kind == NodeKind::Text;
+    let align = n.text_align.unwrap_or(if default_left_top {
+        TextAlign::Left
+    } else {
+        TextAlign::Center
+    });
+    let valign = n.vertical_align.unwrap_or(if default_left_top {
+        VerticalAlign::Top
+    } else {
+        VerticalAlign::Middle
+    });
+    let text_direction = n.text_direction.unwrap_or(Direction::Right);
+    let line_direction = n
+        .line_direction
+        .unwrap_or(if text_direction.is_horizontal() {
+            Direction::Down
+        } else {
+            Direction::Right
+        });
+    let primary_capacity = if text_direction.is_horizontal() {
+        width
+    } else {
+        height
+    } as usize;
+    let secondary_capacity = if text_direction.is_horizontal() {
+        height
+    } else {
+        width
+    } as usize;
+    let mut lines = Vec::<Vec<char>>::new();
+    for raw in n.label.replace('\r', "").lines() {
+        let chars: Vec<char> = raw.chars().collect();
+        if n.wrap_text.unwrap_or(false) && chars.len() > primary_capacity {
+            lines.extend(chars.chunks(primary_capacity).map(|chunk| chunk.to_vec()));
+        } else {
+            lines.push(chars.into_iter().take(primary_capacity).collect());
+        }
+    }
+    lines.truncate(secondary_capacity);
+    let primary_length = lines.iter().map(Vec::len).max().unwrap_or(0) as i32;
+    let secondary_length = lines.len() as i32;
+    let block_width = if text_direction.is_horizontal() {
+        primary_length
+    } else {
+        secondary_length
+    };
+    let block_height = if text_direction.is_horizontal() {
+        secondary_length
+    } else {
+        primary_length
+    };
+    let block_x = match align {
+        TextAlign::Left => x,
+        TextAlign::Center => x + (width - block_width) / 2,
+        TextAlign::Right => x + width - block_width,
+    };
+    let block_y = match valign {
+        VerticalAlign::Top => y,
+        VerticalAlign::Middle => y + (height - block_height) / 2,
+        VerticalAlign::Bottom => y + height - block_height,
+    };
+    for (line_index, chars) in lines.into_iter().enumerate() {
+        let line_index = line_index as i32;
+        let (line_x, line_y) = match line_direction {
+            Direction::Down => (block_x, block_y + line_index),
+            Direction::Up => (block_x, block_y + block_height - 1 - line_index),
+            Direction::Right => (block_x + line_index, block_y),
+            Direction::Left => (block_x + block_width - 1 - line_index, block_y),
+        };
+        for (char_index, ch) in chars.into_iter().enumerate() {
+            let char_index = char_index as i32;
+            let (char_x, char_y) = match text_direction {
+                Direction::Right => (line_x + char_index, line_y),
+                Direction::Left => (line_x + primary_length - 1 - char_index, line_y),
+                Direction::Down => (line_x, line_y + char_index),
+                Direction::Up => (line_x, line_y + primary_length - 1 - char_index),
+            };
+            map.insert((char_y, char_x), output_char(ch, ascii));
         }
     }
 }
@@ -1474,11 +2051,26 @@ fn segment_points(a: Point, b: Point) -> Vec<Point> {
     }
     out
 }
+#[cfg(test)]
 fn draw_route(map: &mut BTreeMap<(i32, i32), char>, points: &[Point], ascii: bool) {
+    draw_route_styled(map, points, ascii, LineStyle::Solid)
+}
+fn draw_route_styled(
+    map: &mut BTreeMap<(i32, i32), char>,
+    points: &[Point],
+    ascii: bool,
+    style: LineStyle,
+) {
     let mut route_masks = BTreeMap::<(i32, i32), u8>::new();
-    for pair in points.windows(2) {
-        let segment = segment_points(pair[0], pair[1]);
+    let mut dashed_cells = HashSet::<(i32, i32)>::new();
+    let mut traversal_index = 0usize;
+    for (pair_index, pair) in points.windows(2).enumerate() {
+        let mut segment = segment_points(pair[0], pair[1]);
+        if segment.first() != Some(&pair[0]) {
+            segment.reverse();
+        }
         for (index, p) in segment.iter().enumerate() {
+            let new_traversal_cell = pair_index == 0 || index > 0;
             let mut mask = 0;
             if index > 0 {
                 mask |= direction(*p, segment[index - 1]);
@@ -1490,9 +2082,18 @@ fn draw_route(map: &mut BTreeMap<(i32, i32), char>, points: &[Point], ascii: boo
                 .entry((p.y, p.x))
                 .and_modify(|old| *old |= mask)
                 .or_insert(mask);
+            if new_traversal_cell {
+                if traversal_index.is_multiple_of(2) {
+                    dashed_cells.insert((p.y, p.x));
+                }
+                traversal_index += 1;
+            }
         }
     }
     for (position, mask) in route_masks {
+        if style == LineStyle::Dashed && !dashed_cells.contains(&position) {
+            continue;
+        }
         map.entry(position)
             .and_modify(|old| *old = line_glyph(line_mask(*old) | mask, ascii))
             .or_insert_with(|| line_glyph(mask, ascii));
@@ -1518,12 +2119,12 @@ fn direction(from: Point, to: Point) -> u8 {
 
 fn line_mask(ch: char) -> u8 {
     match ch {
-        '─' | '═' | '┄' | '┈' | '-' => LEFT | RIGHT,
-        '│' | '║' | '┆' | '┊' | '|' => UP | DOWN,
-        '┌' | '╔' => RIGHT | DOWN,
-        '┐' | '╗' => LEFT | DOWN,
-        '└' | '╚' => RIGHT | UP,
-        '┘' | '╝' => LEFT | UP,
+        '─' | '═' | '┄' | '┈' | '━' | '-' => LEFT | RIGHT,
+        '│' | '║' | '┆' | '┊' | '┃' | '|' => UP | DOWN,
+        '┌' | '╔' | '╭' | '┏' => RIGHT | DOWN,
+        '┐' | '╗' | '╮' | '┓' => LEFT | DOWN,
+        '└' | '╚' | '╰' | '┗' => RIGHT | UP,
+        '┘' | '╝' | '╯' | '┛' => LEFT | UP,
         '├' => UP | RIGHT | DOWN,
         '┤' => UP | LEFT | DOWN,
         '┬' => LEFT | RIGHT | DOWN,
@@ -1569,6 +2170,26 @@ fn arrow(a: Point, b: Point, ascii: bool) -> char {
         '^'
     } else {
         '▲'
+    }
+}
+fn marker(a: Point, b: Point, style: ArrowStyle, ascii: bool) -> char {
+    match style {
+        ArrowStyle::Arrow => arrow(a, b, ascii),
+        ArrowStyle::Diamond => {
+            if ascii {
+                '<'
+            } else {
+                '◆'
+            }
+        }
+        ArrowStyle::Circle => {
+            if ascii {
+                'o'
+            } else {
+                '●'
+            }
+        }
+        ArrowStyle::None => ' ',
     }
 }
 fn bounds_for(cells: &[Cell]) -> Bounds {
@@ -1683,34 +2304,86 @@ pub fn render_svg(scene: &Scene) -> Result<String, DiagramError> {
             let y = f64::from((point.y - scene.bounds.y) * ch) + f64::from(ch) / 2.0;
             path.push_str(&format!("{}{x},{y}", if index == 0 { 'M' } else { 'L' }));
         }
-        arrows.push_str(&format!("<path d=\"{path}\" stroke-linejoin=\"round\"/>"));
-        let Some(pair) = route.points.windows(2).last() else {
-            continue;
+        let dash = if route.line_style == LineStyle::Dashed {
+            " stroke-dasharray=\"5 4\""
+        } else {
+            ""
         };
-        let dx = (pair[1].x - pair[0].x).signum();
-        let dy = (pair[1].y - pair[0].y).signum();
-        if dx == 0 && dy == 0 {
-            continue;
-        }
-        let tip_x = f64::from((pair[1].x - scene.bounds.x) * cw) + f64::from(cw) / 2.0;
-        let tip_y = f64::from((pair[1].y - scene.bounds.y) * ch) + f64::from(ch) / 2.0;
-        let dir_x = f64::from(dx);
-        let dir_y = f64::from(dy);
-        let base_x = tip_x - dir_x * 7.0;
-        let base_y = tip_y - dir_y * 7.0;
-        let perp_x = -dir_y * 3.5;
-        let perp_y = dir_x * 3.5;
         arrows.push_str(&format!(
-            "<path fill=\"#9298a3\" stroke=\"none\" d=\"M{tip_x},{tip_y}L{},{}L{},{}Z\"/>",
-            base_x + perp_x,
-            base_y + perp_y,
-            base_x - perp_x,
-            base_y - perp_y
+            "<path d=\"{path}\" stroke-linejoin=\"round\"{dash}/>"
         ));
+        if let Some(pair) = route.points.windows(2).last() {
+            push_svg_marker(
+                &mut arrows,
+                pair[0],
+                pair[1],
+                route.end_arrow,
+                &scene.bounds,
+                cw,
+                ch,
+            );
+        }
+        if route.points.len() >= 2 {
+            push_svg_marker(
+                &mut arrows,
+                route.points[1],
+                route.points[0],
+                route.start_arrow,
+                &scene.bounds,
+                cw,
+                ch,
+            );
+        }
     }
     Ok(format!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" viewBox=\"0 0 {width} {height}\"><rect width=\"100%\" height=\"100%\" fill=\"white\"/><g fill=\"none\" stroke=\"#9298a3\" stroke-width=\"1\" stroke-linecap=\"square\"><path d=\"{strokes}\"/><path d=\"{dashed_strokes}\" stroke-dasharray=\"3 3\"/><path d=\"{boundary_strokes}\" stroke=\"#b7bdc6\" stroke-dasharray=\"2 4\"/><path d=\"{double_strokes}\" stroke-width=\"4.35\"/><path d=\"{double_strokes}\" stroke=\"white\" stroke-width=\"2.05\"/>{arrows}</g><g font-family=\"ui-monospace,monospace\" font-size=\"14\" fill=\"#30333b\" text-anchor=\"middle\" dominant-baseline=\"central\">{text}</g></svg>\n"
     ))
+}
+fn push_svg_marker(
+    out: &mut String,
+    from: Point,
+    tip: Point,
+    style: ArrowStyle,
+    bounds: &Bounds,
+    cw: i32,
+    ch: i32,
+) {
+    if style == ArrowStyle::None {
+        return;
+    }
+    let dx = (tip.x - from.x).signum();
+    let dy = (tip.y - from.y).signum();
+    if dx == 0 && dy == 0 {
+        return;
+    }
+    let x = f64::from((tip.x - bounds.x) * cw) + f64::from(cw) / 2.0;
+    let y = f64::from((tip.y - bounds.y) * ch) + f64::from(ch) / 2.0;
+    let ux = f64::from(dx);
+    let uy = f64::from(dy);
+    let px = -uy * 3.5;
+    let py = ux * 3.5;
+    match style {
+        ArrowStyle::Arrow => out.push_str(&format!(
+            "<path fill=\"#9298a3\" stroke=\"none\" d=\"M{x},{y}L{},{}L{},{}Z\"/>",
+            x - ux * 7.0 + px,
+            y - uy * 7.0 + py,
+            x - ux * 7.0 - px,
+            y - uy * 7.0 - py
+        )),
+        ArrowStyle::Diamond => out.push_str(&format!(
+            "<path fill=\"#9298a3\" stroke=\"none\" d=\"M{x},{y}L{},{}L{},{}L{},{}Z\"/>",
+            x - ux * 5.0 + px,
+            y - uy * 5.0 + py,
+            x - ux * 10.0,
+            y - uy * 10.0,
+            x - ux * 5.0 - px,
+            y - uy * 5.0 - py
+        )),
+        ArrowStyle::Circle => out.push_str(&format!(
+            "<circle cx=\"{x}\" cy=\"{y}\" r=\"3.5\" fill=\"#9298a3\" stroke=\"none\"/>"
+        )),
+        ArrowStyle::None => {}
+    }
 }
 fn escape_xml(value: &str) -> String {
     value
@@ -1745,7 +2418,7 @@ mod tests {
                 .contains("\"code\":\"invalid_document_json\"")
         );
         let unsupported =
-            Engine::new(r#"{"version":2,"title":"","nodes":[],"edges":[]}"#).unwrap_err();
+            Engine::new(r#"{"version":3,"title":"","nodes":[],"edges":[]}"#).unwrap_err();
         assert_eq!(unsupported.code(), ErrorCode::UnsupportedVersion);
         let unknown =
             Engine::new(r#"{"version":1,"title":"","nodes":[],"edges":[],"extra":true}"#).unwrap();
@@ -1948,6 +2621,17 @@ mod tests {
             y,
             width,
             height,
+            border: None,
+            text_align: None,
+            vertical_align: None,
+            padding: None,
+            wrap_text: None,
+            fill: None,
+            shadow: None,
+            hidden: None,
+            locked: None,
+            text_direction: None,
+            line_direction: None,
         }
     }
 
@@ -2373,5 +3057,176 @@ mod tests {
                 .unwrap()
                 .contains("stroke-linejoin=\"round\"")
         );
+    }
+
+    #[test]
+    fn v1_migrates_and_v2_styles_compose() {
+        let legacy = Engine::new(&json("api")).unwrap();
+        assert_eq!(legacy.document().version, 2);
+        let styled = Engine::new(r#"{"version":2,"title":"","nodes":[{"id":"r","kind":"rectangle","label":"hello world","x":0,"y":0,"width":12,"height":5,"border":"rounded","textAlign":"right","verticalAlign":"bottom","padding":1,"wrap":true,"fill":".","shadow":true}],"edges":[]}"#).unwrap();
+        let text = styled.export_text(false).unwrap();
+        assert!(text.contains('╭') && text.contains('░') && text.contains("hello"));
+    }
+
+    #[test]
+    fn free_endpoints_and_edge_metadata_are_validated_and_exported() {
+        let engine = Engine::new(r#"{"version":2,"title":"","nodes":[],"edges":[{"id":"e","from":"","to":"","fromPoint":{"x":0,"y":0},"toPoint":{"x":8,"y":4},"label":"","startArrow":"circle","endArrow":"diamond","lineStyle":"dashed","routing":"staircase"}]}"#).unwrap();
+        let route = &engine.scene().routes[0];
+        assert_eq!(route.points.first(), Some(&Point { x: 0, y: 0 }));
+        assert_eq!(route.points.last(), Some(&Point { x: 8, y: 4 }));
+        assert_eq!(route.start_arrow, ArrowStyle::Circle);
+        assert_eq!(route.end_arrow, ArrowStyle::Diamond);
+        assert_eq!(route.line_style, LineStyle::Dashed);
+        assert!(
+            engine
+                .export_svg()
+                .unwrap()
+                .contains("stroke-dasharray=\"5 4\"")
+        );
+        assert!(Engine::new(r#"{"version":2,"title":"","nodes":[],"edges":[{"id":"e","from":"","to":"","toPoint":{"x":1,"y":1},"label":""}]}"#).is_err());
+    }
+
+    #[test]
+    fn retired_shapes_load_as_boxes() {
+        for kind in ["ellipse", "diamond"] {
+            let document = format!(
+                r#"{{"version":2,"title":"","nodes":[{{"id":"s","kind":"{kind}","label":"x","x":0,"y":0,"width":9,"height":5}}],"edges":[]}}"#
+            );
+            let engine = Engine::new(&document).unwrap();
+            assert_eq!(engine.document.nodes[0].kind, NodeKind::Rectangle);
+            assert!(engine.document_json().contains("\"kind\":\"rectangle\""));
+            assert!(engine.export_text(false).unwrap().contains('┌'));
+        }
+    }
+
+    #[test]
+    fn staircase_routing_emits_real_grid_steps() {
+        let engine = Engine::new(r#"{"version":2,"title":"","nodes":[],"edges":[{"id":"e","from":"","to":"","fromPoint":{"x":0,"y":0},"toPoint":{"x":4,"y":3},"label":"","routing":"staircase"}]}"#).unwrap();
+        let points = &engine.scene().routes[0].points;
+        assert!(points.len() > 3, "{points:?}");
+        assert_eq!(points.first(), Some(&Point { x: 0, y: 0 }));
+        assert_eq!(points.last(), Some(&Point { x: 4, y: 3 }));
+        for pair in points.windows(2) {
+            let dx = (pair[1].x - pair[0].x).abs();
+            let dy = (pair[1].y - pair[0].y).abs();
+            assert!(dx == 0 || dy == 0, "{points:?}");
+            assert_eq!(dx + dy, 1, "{points:?}");
+        }
+    }
+
+    #[test]
+    fn hidden_nodes_and_incident_edges_are_not_composed() {
+        let engine = Engine::new(r#"{"version":2,"title":"","nodes":[{"id":"a","kind":"rectangle","label":"hidden","x":0,"y":0,"width":8,"height":3,"hidden":true,"locked":true},{"id":"b","kind":"rectangle","label":"shown","x":20,"y":0,"width":8,"height":3}],"edges":[{"id":"e","from":"a","to":"b","label":"hidden edge"}]}"#).unwrap();
+        let scene = engine.scene();
+        assert!(scene.routes.is_empty());
+        assert!(!engine.export_text(false).unwrap().contains("hidden"));
+        assert!(engine.document_json().contains("\"locked\":true"));
+    }
+
+    #[test]
+    fn node_order_patch_reorders_atomically_and_is_undoable() {
+        let mut engine = Engine::new(&json("api")).unwrap();
+        engine
+            .apply_patch_json(r#"{"nodeOrder":["b","a"]}"#)
+            .unwrap();
+        assert_eq!(
+            engine
+                .document()
+                .nodes
+                .iter()
+                .map(|n| n.id.as_str())
+                .collect::<Vec<_>>(),
+            ["b", "a"]
+        );
+        assert!(
+            engine
+                .apply_patch_json(r#"{"nodeOrder":["a","a"]}"#)
+                .is_err()
+        );
+        assert_eq!(engine.document().nodes[0].id, "b");
+        assert!(engine.undo());
+        assert_eq!(engine.document().nodes[0].id, "a");
+    }
+
+    #[test]
+    fn reverse_and_vertical_text_sweeps_share_export_cells() {
+        let reverse = Engine::new(r#"{"version":2,"title":"","nodes":[{"id":"t","kind":"text","label":"abc","x":0,"y":0,"width":3,"height":1,"textDirection":"left"}],"edges":[]}"#).unwrap();
+        assert_eq!(reverse.export_text(false).unwrap(), "cba\n");
+
+        let vertical = Engine::new(r#"{"version":2,"title":"","nodes":[{"id":"t","kind":"text","label":"Aβ","x":0,"y":0,"width":2,"height":3,"textDirection":"down","lineDirection":"right"}],"edges":[]}"#).unwrap();
+        let unicode = vertical.export_text(false).unwrap();
+        let ascii = vertical.export_text(true).unwrap();
+        let svg = vertical.export_svg().unwrap();
+        assert_eq!(unicode, "A\nβ\n");
+        assert_eq!(ascii, "A\n?\n");
+        assert!(svg.contains(">A</text>") && svg.contains(">β</text>"));
+    }
+
+    #[test]
+    fn line_sweep_is_perpendicular_and_can_reverse() {
+        let upward = Engine::new(r#"{"version":2,"title":"","nodes":[{"id":"t","kind":"text","label":"ab\ncd","x":0,"y":0,"width":2,"height":2,"textDirection":"right","lineDirection":"up"}],"edges":[]}"#).unwrap();
+        assert_eq!(upward.export_text(false).unwrap(), "cd\nab\n");
+        assert!(Engine::new(r#"{"version":2,"title":"","nodes":[{"id":"t","kind":"text","label":"bad","x":0,"y":0,"width":3,"height":1,"textDirection":"right","lineDirection":"left"}],"edges":[]}"#).is_err());
+    }
+
+    #[test]
+    fn borderless_text_is_transparent_and_box_fill_shadow_compose() {
+        let mut map = BTreeMap::from([((0, 1), 'X')]);
+        let mut text = node("t", 0, 0, 3, 1);
+        text.kind = NodeKind::Text;
+        text.label = "A".into();
+        draw_node(&mut map, &text, false);
+        assert_eq!(map[&(0, 1)], 'X');
+
+        let mut rectangle = node("r", 0, 0, 9, 5);
+        rectangle.kind = NodeKind::Rectangle;
+        rectangle.fill = Some(".".into());
+        rectangle.shadow = Some(true);
+        draw_node(&mut map, &rectangle, false);
+        assert!(map.values().any(|ch| *ch == '.'));
+        assert!(map.values().any(|ch| *ch == '░'));
+    }
+
+    #[test]
+    fn borderless_text_padding_and_shadow_are_composed() {
+        let engine = Engine::new(r#"{"version":2,"title":"","nodes":[{"id":"t","kind":"text","label":"A","x":0,"y":0,"width":5,"height":3,"padding":1,"shadow":true}],"edges":[]}"#).unwrap();
+        let scene = engine.scene();
+        let cells: HashMap<_, _> = scene
+            .cells
+            .iter()
+            .map(|cell| ((cell.x, cell.y), cell.ch.as_str()))
+            .collect();
+        assert_eq!(cells.get(&(1, 1)), Some(&"A"));
+        assert!(!cells.contains_key(&(0, 0)));
+        assert_eq!(cells.get(&(5, 1)), Some(&"░"));
+        assert_eq!(cells.get(&(1, 3)), Some(&"░"));
+    }
+
+    #[test]
+    fn v1_borderless_text_migration_preserves_opaque_blank_cells() {
+        let input = r#"{"version":1,"title":"","nodes":[{"id":"lower","kind":"text","label":"XXX","x":0,"y":0,"width":3,"height":1},{"id":"upper","kind":"text","label":"A","x":0,"y":0,"width":3,"height":1}],"edges":[]}"#;
+        let engine = Engine::new(input).unwrap();
+        assert_eq!(engine.export_text(false).unwrap(), "A\n");
+        assert_eq!(engine.document().nodes[1].fill.as_deref(), Some(" "));
+    }
+
+    #[test]
+    fn dashed_route_phase_follows_path_traversal() {
+        let mut map = BTreeMap::new();
+        draw_route_styled(
+            &mut map,
+            &[
+                Point { x: 4, y: 2 },
+                Point { x: 1, y: 2 },
+                Point { x: 1, y: 0 },
+            ],
+            false,
+            LineStyle::Dashed,
+        );
+        assert!(map.contains_key(&(2, 4)));
+        assert!(!map.contains_key(&(2, 3)));
+        assert!(map.contains_key(&(2, 2)));
+        assert!(map.contains_key(&(1, 1)));
+        assert!(!map.contains_key(&(0, 1)));
     }
 }
