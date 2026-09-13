@@ -18,7 +18,7 @@ On this development machine, the installed stable toolchain is already Rust 1.96
 
 ## Editor
 
-The top-left panel button shows or hides a floating document sidebar. New documents and imported files get separate entries, and the active document is restored on reload. Documents stay on this device in IndexedDB; Save downloads a portable `.mso` file. The previous single-document autosave is migrated automatically and retained as a recovery copy.
+The top-left panel button shows or hides a floating document sidebar. New documents and imported files get separate entries, and the active document is restored on reload. Opening, editing, and saving keep documents in their existing order; new documents append to the list. Double-click the active document (or press F2 while its row is focused) to rename it. Hover over a document to reveal its delete button. Documents stay on this device in IndexedDB; Save downloads a portable `.mso` file. The previous single-document autosave is migrated automatically and retained as a recovery copy.
 
 - Choose a shape in the floating toolbar and click the canvas. Controls for a selected block appear in a contextual inspector.
 - Services use single borders, databases double borders, queues dashed borders, and boundaries lighter dashed outlines. Unicode and SVG exports preserve these distinctions.

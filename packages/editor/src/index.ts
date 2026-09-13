@@ -294,6 +294,9 @@ export class Editor {
   fit() {
     this.autoFit = true;
     if (!this.scene) return;
+    if (!this.document.nodes.length) {
+      this.renderer.setCamera({ x: this.width / 2, y: this.height / 2, zoom: 1 }); this.emit(); return;
+    }
     const b = this.scene.bounds;
     const zoom = Math.min(1.25, Math.max(0.15, Math.min((this.width - 150) / (Math.max(b.width, 1) * CELL_WIDTH), (this.height - 180) / (Math.max(b.height, 1) * CELL_HEIGHT))));
     this.renderer.setCamera({ x: (this.width - b.width * CELL_WIDTH * zoom) / 2 - b.x * CELL_WIDTH * zoom, y: (this.height - b.height * CELL_HEIGHT * zoom) / 2 - b.y * CELL_HEIGHT * zoom, zoom }); this.emit();
@@ -320,6 +323,26 @@ export class Editor {
       await this.localDocuments.setActive(id);
       try { this.activateDocument(id, await this.request('init', candidate)); }
       catch (error) { await this.localDocuments.setActive(previousId); throw error; }
+    });
+  }
+  deleteDocument(id: string) {
+    if (!id) return;
+    this.pointerCancel(); this.finishText();
+    return this.enqueueDocumentOperation(async () => {
+      clearTimeout(this.saveTimer); this.saveTimer = undefined;
+      await this.saveQueue;
+      if (id !== this.activeDocumentId) await this.flushCurrentDocument();
+      const blank: DiagramDocument = { version: 1, title: 'Untitled diagram', nodes: [], edges: [] };
+      const removed = await this.localDocuments.remove(id, blank);
+      this.documents = removed.documents;
+      if (!removed.activeChanged) { this.emit(); return; }
+      let activeId = removed.activeId, document = removed.document;
+      try { await this.request('preview', document); }
+      catch {
+        activeId = await this.localDocuments.create(blank); document = blank;
+        await this.localDocuments.setActive(activeId); this.documents = await this.localDocuments.list();
+      }
+      this.activateDocument(activeId, await this.request('init', document));
     });
   }
   async loadFile(file: File) {
@@ -360,6 +383,9 @@ export class Editor {
     if (this.activeDocumentId) await this.localDocuments.save(this.activeDocumentId, clone(this.document));
   }
   private activateDocument(id: string, result: EngineResult) {
+    this.pointerCancel(); this.textId = null; this.textarea.style.display = 'none';
+    this.tool = 'select'; this.spaceDown = false; this.sourceId = null; this.sourceSide = undefined;
+    this.renderer.setConnectSource(null); this.renderer.setConnectHover(null); this.canvas.style.cursor = 'default';
     this.activeDocumentId = id; this.selectedIds.clear(); this.error = null; this.accept(result);
     void this.localDocuments.list().then(documents => { this.documents = documents; this.emit(); }).catch(() => {
       this.error = 'The document opened, but the local document list could not be refreshed.'; this.emit();
@@ -467,6 +493,12 @@ export class Editor {
     }
     if (d.mode === 'marquee') {
       const g = this.renderer.screenToGrid(p.x, p.y); d.currentX = g.x; d.currentY = g.y;
+      const distance = Math.hypot((g.x - d.startX) * CELL_WIDTH * c.zoom, (g.y - d.startY) * CELL_HEIGHT * c.zoom);
+      if (distance < 4) {
+        const next = d.additive ? new Set(d.initialSelection) : new Set<string>();
+        if (next.size !== this.selectedIds.size || [...next].some(id => !this.selectedIds.has(id))) { this.selectedIds = next; this.renderer.setSelection([...next]); this.emit(); }
+        this.renderer.setMarquee(null); return;
+      }
       const left = Math.min(d.startX, g.x), top = Math.min(d.startY, g.y), right = Math.max(d.startX, g.x), bottom = Math.max(d.startY, g.y);
       const raw = this.document.nodes.filter(n => n.x < right && n.x + n.width > left && n.y < bottom && n.y + n.height > top);
       const groups = new Set(raw.map(n => (n as GroupNode).groupId).filter((id): id is string => Boolean(id)));
