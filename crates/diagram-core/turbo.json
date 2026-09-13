@@ -16,6 +16,8 @@
         "$TURBO_ROOT$/rust-toolchain.toml",
         "$TURBO_ROOT$/schemas/document-v1.schema.json",
         "$TURBO_ROOT$/schemas/document-patch-v1.schema.json",
+        "$TURBO_ROOT$/schemas/document-v3.schema.json",
+        "$TURBO_ROOT$/schemas/document-patch-v3.schema.json",
         "$TURBO_ROOT$/schemas/document-v2.schema.json",
         "$TURBO_ROOT$/schemas/document-patch-v2.schema.json"
       ]
@@ -33,6 +35,8 @@
         "$TURBO_ROOT$/rust-toolchain.toml",
         "$TURBO_ROOT$/schemas/document-v1.schema.json",
         "$TURBO_ROOT$/schemas/document-patch-v1.schema.json",
+        "$TURBO_ROOT$/schemas/document-v3.schema.json",
+        "$TURBO_ROOT$/schemas/document-patch-v3.schema.json",
         "$TURBO_ROOT$/schemas/document-v2.schema.json",
         "$TURBO_ROOT$/schemas/document-patch-v2.schema.json"
       ]
@@ -50,6 +54,8 @@
         "$TURBO_ROOT$/rust-toolchain.toml",
         "$TURBO_ROOT$/schemas/document-v1.schema.json",
         "$TURBO_ROOT$/schemas/document-patch-v1.schema.json",
+        "$TURBO_ROOT$/schemas/document-v3.schema.json",
+        "$TURBO_ROOT$/schemas/document-patch-v3.schema.json",
         "$TURBO_ROOT$/schemas/document-v2.schema.json",
         "$TURBO_ROOT$/schemas/document-patch-v2.schema.json"
       ]
@@ -67,6 +73,8 @@
         "$TURBO_ROOT$/rust-toolchain.toml",
         "$TURBO_ROOT$/schemas/document-v1.schema.json",
         "$TURBO_ROOT$/schemas/document-patch-v1.schema.json",
+        "$TURBO_ROOT$/schemas/document-v3.schema.json",
+        "$TURBO_ROOT$/schemas/document-patch-v3.schema.json",
         "$TURBO_ROOT$/schemas/document-v2.schema.json",
         "$TURBO_ROOT$/schemas/document-patch-v2.schema.json"
       ],
@@ -88,6 +96,8 @@
         "$TURBO_ROOT$/rust-toolchain.toml",
         "$TURBO_ROOT$/schemas/document-v1.schema.json",
         "$TURBO_ROOT$/schemas/document-patch-v1.schema.json",
+        "$TURBO_ROOT$/schemas/document-v3.schema.json",
+        "$TURBO_ROOT$/schemas/document-patch-v3.schema.json",
         "$TURBO_ROOT$/schemas/document-v2.schema.json",
         "$TURBO_ROOT$/schemas/document-patch-v2.schema.json",
         "$TURBO_ROOT$/fixtures/benchmarks/**"

@@ -1,8 +1,8 @@
 # Document and command contract
 
-The portable `.mso` format is versioned JSON. Versions 1 and 2 are described by
-[`schemas/document-v1.schema.json`](../schemas/document-v1.schema.json). Atomic
-edits use [`schemas/document-patch-v1.schema.json`](../schemas/document-patch-v1.schema.json).
+The portable `.mso` format is versioned JSON. The current version is described by
+[`schemas/document-v3.schema.json`](../schemas/document-v3.schema.json). Atomic
+edits use [`schemas/document-patch-v3.schema.json`](../schemas/document-patch-v3.schema.json).
 The Rust core is the authoritative validator; JSON Schema describes the portable
 shape, while the core additionally checks unique IDs, edge references, control
 characters, byte limits, and total bounds.
@@ -16,7 +16,7 @@ also accept `null`. Normalized output omits optional fields when unset.
 ## Versioning and migration
 
 `version` identifies the document contract, not the application release. The
-current version is `2`; there is no implied version for a JSON
+current version is `3`; there is no implied version for a JSON
 object that omits it. Readers reject unsupported versions with
 `unsupported_version` and never partially load them.
 
@@ -34,7 +34,15 @@ v1's opaque blank cells. Other omitted styles preserve v1 rendering: service use
 border, database a double border, queue and boundary dashed borders, and text no
 border. Text defaults to left/top alignment; bordered nodes default to
 center/middle. Edges default to no start marker, an arrow end marker, a solid
-line, and orthogonal routing. Writers emit version 2.
+line, and orthogonal routing. Writers emit version 3.
+
+Version 3 adds optional node `title`, a single-line string without control characters.
+Version 2 migrates by updating the version; existing nodes render unchanged.
+Optional `titlePosition` selects `top-left`, `top-middle` (default), `top-right`,
+`bottom-left`, `bottom-middle`, or `bottom-right`. Titles render with a space on
+either side in the selected border, independently of body text layout. They clip to the available width without changing stored text.
+Empty titles, borderless nodes, boxes narrower than five cells, and one-row boxes
+show no title. Removing a border preserves the title for later restoration.
 
 Version 2 adds the `rectangle` node kind. Nodes may specify `border` (`none`,
 `single`, `double`, `rounded`, `heavy`, or `dashed`), `textAlign`,

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Copy, Trash2, ArrowLeftRight } from 'lucide-react'
+import { Copy, Trash2 } from 'lucide-react'
 import type { DiagramNode, DiagramEdge } from '@draw/editor'
 import { Button } from '@draw/ui/components/ui/button'
 import { Input } from '@draw/ui/components/ui/input'
@@ -17,6 +17,7 @@ export function NodeInspector({ node, connections, update, updateEdge, deleteEdg
   return <aside className="inspector-panel" aria-label="Inspector">
     <div className="inspector-heading"><i />{node.kind === 'text' ? 'Text' : 'Rectangle'}<span>{node.width} × {node.height}</span></div>
     <fieldset disabled={node.locked} className="inspector-content">
+      {node.kind !== 'text' && <NodeTitle node={node} borderless={border === 'none'} update={update} />}
       <label htmlFor="node-label">Text</label><Textarea id="node-label" aria-label="Label" rows={3} value={draft.label} onChange={e => setDraft({ ...draft, label: e.target.value })} onBlur={() => commit('label')} />
       <details open><summary>Text layout</summary><div className="property-stack">
         <Choice label="Alignment" value={node.textAlign ?? (node.kind === 'text' ? 'left' : 'center')} values={['left', 'center', 'right']} onChange={textAlign => update({ textAlign })} />
@@ -52,7 +53,12 @@ export function LineInspector({ edge, update, duplicate, remove }: { edge: Diagr
       <Choice label="Line style" value={edge.lineStyle ?? 'solid'} values={['solid', 'dashed']} onChange={lineStyle => update({ lineStyle })} />
       <Choice label="Start marker" value={edge.startArrow ?? 'none'} values={['none', 'arrow', 'diamond', 'circle']} onChange={startArrow => update({ startArrow })} />
       <Choice label="End marker" value={edge.endArrow ?? 'arrow'} values={['none', 'arrow', 'diamond', 'circle']} onChange={endArrow => update({ endArrow })} />
-      <Button variant="outline" size="sm" onClick={() => update({ from: edge.to, to: edge.from, fromPoint: edge.toPoint, toPoint: edge.fromPoint, fromSide: edge.toSide, toSide: edge.fromSide, startArrow: edge.endArrow ?? 'arrow', endArrow: edge.startArrow ?? 'none' })}><ArrowLeftRight />Reverse direction</Button>
     </div>
   </div><div className="inspector-actions"><Button variant="ghost" size="icon-sm" aria-label="Duplicate line" onClick={duplicate}><Copy /></Button><Button variant="ghost" size="icon-sm" aria-label="Delete line" onClick={remove}><Trash2 /></Button></div></aside>
+}
+
+function NodeTitle({ node, borderless, update }: { node: DiagramNode; borderless: boolean; update: (patch: Partial<DiagramNode>) => void }) {
+  const [title, setTitle] = useState(node.title ?? '')
+  useEffect(() => setTitle(node.title ?? ''), [node.id, node.title])
+  return <><label htmlFor="node-title">Title</label><Input id="node-title" placeholder="Add a title" value={title} onChange={event => setTitle(event.target.value)} onBlur={() => { if (title !== (node.title ?? '')) update({ title }) }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} /><label className="property-choice"><span>Title position</span><select aria-label="Title position" value={node.titlePosition ?? 'top-middle'} onChange={event => update({ titlePosition: event.target.value as DiagramNode['titlePosition'] })}>{(['top-left', 'top-middle', 'top-right', 'bottom-left', 'bottom-middle', 'bottom-right'] as const).map(position => <option key={position} value={position}>{position.charAt(0).toUpperCase() + position.slice(1).replace('-', ' ')}</option>)}</select></label>{borderless && <small>Choose a border to display the title.</small>}</>
 }

@@ -72,7 +72,7 @@ test("draws a sized rectangle and persists its text layout and appearance", asyn
   if (!(await wrap.isChecked())) await wrap.check()
 
   const saved = await saveDocument(page)
-  expect(saved.document.version).toBe(2)
+  expect(saved.document.version).toBe(3)
   expect(saved.document.nodes).toHaveLength(1)
   expect(saved.document.nodes[0]).toMatchObject({
     kind: "rectangle", width: 13, height: 8, label: "alpha beta gamma",
@@ -112,7 +112,7 @@ test("creates text with the Text tool and upgrades a legacy document durably", a
   })
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Legacy service")
   const upgraded = await saveDocument(page)
-  expect(upgraded.document).toMatchObject({ version: 2, title: "Legacy service" })
+  expect(upgraded.document).toMatchObject({ version: 3, title: "Legacy service" })
   expect(upgraded.document.nodes[0]).toMatchObject({ id: "legacy", kind: "service", label: "API" })
 
   await page.reload()
@@ -252,4 +252,63 @@ test("Fill updates the box background without creating editable text", async ({ 
   expect((await saveDocument(page)).document.nodes).toEqual([{ ...before.nodes[0], fill: '.' }])
   await page.mouse.click(start.x - 100, start.y - 80)
   expect((await saveDocument(page)).document.nodes).toEqual([{ ...before.nodes[0], fill: '.' }])
+})
+
+test("box titles are independent, undoable, and survive reopening", async ({ page }) => {
+  await waitForEditor(page)
+  await newDocument(page)
+  const box = await canvasBox(page)
+  await page.getByRole("button", { name: "Rectangle", exact: true }).click()
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+  await page.getByLabel("Label", { exact: true }).fill("Body")
+  await page.getByLabel("Label", { exact: true }).press("Tab")
+  await page.getByLabel("Title", { exact: true }).fill("API")
+  await page.getByLabel("Title", { exact: true }).press("Enter")
+  expect((await saveDocument(page)).document.nodes[0]).toMatchObject({ title: "API", label: "Body" })
+  const exported = await exportUnicode(page)
+  expect(await readFile((await exported.path())!, "utf8")).toContain(" API ")
+  await page.getByRole("button", { name: "Undo", exact: true }).click()
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("")
+  await page.getByRole("button", { name: "Redo", exact: true }).click()
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("API")
+  await page.screenshot({ path: "test-results/box-title.png" })
+  const saved = await saveDocument(page)
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "titled.mso", mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(saved.document)),
+  })
+  expect((await saveDocument(page)).document.nodes[0]).toMatchObject({ title: "API", label: "Body" })
+  await page.reload()
+  await expect(page.locator(".canvas-meta")).toContainText("Ready")
+  expect((await saveDocument(page)).document.nodes[0]).toMatchObject({ title: "API", label: "Body" })
+})
+
+test("positions titles on all six border locations and persists the choice", async ({ page }) => {
+  await waitForEditor(page)
+  await newDocument(page)
+  const box = await canvasBox(page)
+  await page.getByRole("button", { name: "Rectangle", exact: true }).click()
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+  await page.getByLabel("Title", { exact: true }).fill("API")
+  await page.getByLabel("Title", { exact: true }).press("Enter")
+  const position = page.getByLabel("Title position", { exact: true })
+  await expect(position).toHaveValue("top-middle")
+  for (const side of ["top", "bottom"]) {
+    for (const [alignment, column] of [["left", 2], ["middle", 10], ["right", 19]] as const) {
+      const value = side + "-" + alignment
+      await position.selectOption(value)
+      expect((await saveDocument(page)).document.nodes[0]).toMatchObject({ title: "API", titlePosition: value })
+      const download = await exportUnicode(page)
+      const rows = (await readFile((await download.path())!, "utf8")).trimEnd().split("\n")
+      const row = side === "top" ? rows[0]! : rows.at(-1)!
+      expect(row.indexOf("API")).toBe(column)
+    }
+  }
+  await page.getByRole("button", { name: "Undo", exact: true }).click()
+  await expect(position).toHaveValue("bottom-middle")
+  await page.getByRole("button", { name: "Redo", exact: true }).click()
+  await expect(position).toHaveValue("bottom-right")
+  await page.reload()
+  await expect(page.locator(".canvas-meta")).toContainText("Ready")
+  expect((await saveDocument(page)).document.nodes[0]).toMatchObject({ title: "API", titlePosition: "bottom-right" })
 })

@@ -20,9 +20,9 @@ const MAX_HISTORY: usize = 100;
 const MAX_ROUTING_OBSTACLES: usize = 64;
 const MAX_ROUTING_LANES: usize = 16;
 
-pub const DOCUMENT_VERSION: u32 = 2;
-pub const DOCUMENT_SCHEMA_JSON: &str = include_str!("../../../schemas/document-v2.schema.json");
-pub const PATCH_SCHEMA_JSON: &str = include_str!("../../../schemas/document-patch-v2.schema.json");
+pub const DOCUMENT_VERSION: u32 = 3;
+pub const DOCUMENT_SCHEMA_JSON: &str = include_str!("../../../schemas/document-v3.schema.json");
+pub const PATCH_SCHEMA_JSON: &str = include_str!("../../../schemas/document-patch-v3.schema.json");
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Document {
@@ -37,6 +37,14 @@ pub struct Node {
     pub id: String,
     pub kind: NodeKind,
     pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "titlePosition"
+    )]
+    pub title_position: Option<TitlePosition>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "groupId")]
     pub group_id: Option<String>,
     pub x: i32,
@@ -77,6 +85,17 @@ pub struct Node {
         rename = "lineDirection"
     )]
     pub line_direction: Option<Direction>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum TitlePosition {
+    TopLeft,
+    TopMiddle,
+    TopRight,
+    BottomLeft,
+    BottomMiddle,
+    BottomRight,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -350,10 +369,14 @@ fn migrate_document(document: &mut Document) -> Result<(), DiagramError> {
             document.version = DOCUMENT_VERSION;
             Ok(())
         }
+        2 => {
+            document.version = DOCUMENT_VERSION;
+            Ok(())
+        }
         DOCUMENT_VERSION => Ok(()),
         version => Err(DiagramError::with_code(
             ErrorCode::UnsupportedVersion,
-            format!("unsupported document version {version}; expected 1 or {DOCUMENT_VERSION}"),
+            format!("unsupported document version {version}; expected 1, 2 or {DOCUMENT_VERSION}"),
         )),
     }
 }
@@ -389,6 +412,14 @@ pub fn validate_document(doc: &Document) -> Result<(), DiagramError> {
             )));
         }
         check_text("node label", &node.label)?;
+        if let Some(title) = &node.title {
+            check_text("node title", title)?;
+            if title.chars().any(char::is_control) {
+                return Err(DiagramError::new(
+                    "node title must be a single line without control characters",
+                ));
+            }
+        }
         if let Some(padding) = node.padding
             && !(0..=MAX_DIMENSION).contains(&padding)
         {
@@ -1754,6 +1785,8 @@ fn free_endpoint_node(id: &str, point: Point) -> Node {
         id: id.into(),
         kind: NodeKind::Text,
         label: String::new(),
+        title: None,
+        title_position: None,
         group_id: None,
         x: point.x,
         y: point.y,
@@ -1852,6 +1885,36 @@ fn draw_node(map: &mut BTreeMap<(i32, i32), char>, n: &Node, ascii: bool) {
     map.insert((n.y, right), tr);
     map.insert((bottom, n.x), bl);
     map.insert((bottom, right), br);
+    // Place a padded title within the selected border, preserving both corners.
+    // Clip only the display: resizing wider reveals the full stored title.
+    if let Some(title) = n.title.as_deref().filter(|title| !title.is_empty())
+        && n.width > 4
+        && n.height > 1
+    {
+        let chars: Vec<char> = title.chars().take((n.width - 4) as usize).collect();
+        let position = n.title_position.unwrap_or(TitlePosition::TopMiddle);
+        let start = n.x
+            + match position {
+                TitlePosition::TopLeft | TitlePosition::BottomLeft => 1,
+                TitlePosition::TopMiddle | TitlePosition::BottomMiddle => {
+                    (n.width - chars.len() as i32 - 2) / 2
+                }
+                TitlePosition::TopRight | TitlePosition::BottomRight => {
+                    n.width - chars.len() as i32 - 3
+                }
+            };
+        let row = match position {
+            TitlePosition::TopLeft | TitlePosition::TopMiddle | TitlePosition::TopRight => n.y,
+            TitlePosition::BottomLeft
+            | TitlePosition::BottomMiddle
+            | TitlePosition::BottomRight => bottom,
+        };
+        map.insert((row, start), ' ');
+        for (offset, ch) in chars.iter().enumerate() {
+            map.insert((row, start + 1 + offset as i32), output_char(*ch, ascii));
+        }
+        map.insert((row, start + 1 + chars.len() as i32), ' ');
+    }
     if n.shadow.unwrap_or(false) {
         for x in n.x + 1..=right + 1 {
             map.entry((bottom + 1, x))
@@ -2418,7 +2481,7 @@ mod tests {
                 .contains("\"code\":\"invalid_document_json\"")
         );
         let unsupported =
-            Engine::new(r#"{"version":3,"title":"","nodes":[],"edges":[]}"#).unwrap_err();
+            Engine::new(r#"{"version":99,"title":"","nodes":[],"edges":[]}"#).unwrap_err();
         assert_eq!(unsupported.code(), ErrorCode::UnsupportedVersion);
         let unknown =
             Engine::new(r#"{"version":1,"title":"","nodes":[],"edges":[],"extra":true}"#).unwrap();
@@ -2611,11 +2674,105 @@ mod tests {
         assert!(!engine.undo());
     }
 
+    #[test]
+    fn box_titles_render_clip_and_preserve_body() {
+        let mut box_node = node("body", 0, 0, 14, 5);
+        box_node.title = Some("API".into());
+        for border in [
+            BorderStyle::Single,
+            BorderStyle::Double,
+            BorderStyle::Rounded,
+            BorderStyle::Heavy,
+            BorderStyle::Dashed,
+        ] {
+            box_node.border = Some(border);
+            for ascii in [false, true] {
+                let mut map = BTreeMap::new();
+                draw_node(&mut map, &box_node, ascii);
+                let top: String = (0..14).map(|x| map[&(0, x)]).collect();
+                assert!(top.contains(" API "));
+                assert_eq!(map[&(2, 5)], 'b');
+            }
+        }
+        box_node.title = Some("ABCDEFGHIJKLMNO".into());
+        let mut map = BTreeMap::new();
+        draw_node(&mut map, &box_node, false);
+        let top: String = (0..14).map(|x| map[&(0, x)]).collect();
+        assert_eq!(top, "┌ ABCDEFGHIJ ┐");
+        assert_eq!(box_node.title.as_deref(), Some("ABCDEFGHIJKLMNO"));
+        for width in 1..=4 {
+            box_node.width = width;
+            let mut map = BTreeMap::new();
+            draw_node(&mut map, &box_node, false);
+            assert!(!map.values().any(|ch| *ch == 'A'));
+        }
+    }
+
+    #[test]
+    fn all_title_positions_use_the_selected_border_and_alignment() {
+        let mut box_node = node("body", -3, -2, 14, 5);
+        box_node.title = Some("API".into());
+        for (position, offset, row) in [
+            (TitlePosition::TopLeft, 2, -2),
+            (TitlePosition::TopMiddle, 5, -2),
+            (TitlePosition::TopRight, 9, -2),
+            (TitlePosition::BottomLeft, 2, 2),
+            (TitlePosition::BottomMiddle, 5, 2),
+            (TitlePosition::BottomRight, 9, 2),
+        ] {
+            box_node.title_position = Some(position);
+            for ascii in [false, true] {
+                let mut map = BTreeMap::new();
+                draw_node(&mut map, &box_node, ascii);
+                for (index, ch) in "API".chars().enumerate() {
+                    assert_eq!(map[&(row, box_node.x + offset + index as i32)], ch);
+                }
+                let opposite = if row == -2 { 2 } else { -2 };
+                assert_eq!(
+                    map[&(opposite, box_node.x + offset)],
+                    if ascii { '-' } else { '─' }
+                );
+                assert_eq!(map[&(0, 2)], 'b');
+            }
+            let serialized = serde_json::to_string(&box_node).unwrap();
+            assert_eq!(serde_json::from_str::<Node>(&serialized).unwrap(), box_node);
+        }
+    }
+
+    #[test]
+    fn titles_survive_history_serialization_and_exports() {
+        let mut engine = Engine::new(&json("body")).unwrap();
+        let mut updated = engine.document().nodes[0].clone();
+        updated.title = Some("API".into());
+        engine
+            .apply_patch(DocumentPatch {
+                updated_nodes: vec![updated],
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(engine.export_text(false).unwrap().contains(" API "));
+        assert!(engine.export_text(true).unwrap().contains(" API "));
+        assert!(engine.export_svg().unwrap().contains(">A</text>"));
+        assert!(engine.undo());
+        assert!(engine.document().nodes[0].title.is_none());
+        assert!(engine.redo());
+        let saved = serde_json::to_string(engine.document()).unwrap();
+        let reopened = Engine::new(&saved).unwrap();
+        assert_eq!(reopened.document().nodes[0].title.as_deref(), Some("API"));
+        for bad in ["a\nb", "a\tb", "a\u{7f}b"] {
+            let mut doc = reopened.document().clone();
+            doc.nodes[0].title = Some(bad.into());
+            assert!(validate_document(&doc).is_err());
+        }
+    }
+
     fn node(id: &str, x: i32, y: i32, width: i32, height: i32) -> Node {
         Node {
             id: id.into(),
             kind: NodeKind::Service,
             label: id.into(),
+            title: None,
+            title_position: None,
             group_id: None,
             x,
             y,
@@ -3062,7 +3219,7 @@ mod tests {
     #[test]
     fn v1_migrates_and_v2_styles_compose() {
         let legacy = Engine::new(&json("api")).unwrap();
-        assert_eq!(legacy.document().version, 2);
+        assert_eq!(legacy.document().version, DOCUMENT_VERSION);
         let styled = Engine::new(r#"{"version":2,"title":"","nodes":[{"id":"r","kind":"rectangle","label":"hello world","x":0,"y":0,"width":12,"height":5,"border":"rounded","textAlign":"right","verticalAlign":"bottom","padding":1,"wrap":true,"fill":".","shadow":true}],"edges":[]}"#).unwrap();
         let text = styled.export_text(false).unwrap();
         assert!(text.contains('╭') && text.contains('░') && text.contains("hello"));

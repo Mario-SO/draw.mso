@@ -1,13 +1,17 @@
-/** Portable v1 wire types. Rust validation remains authoritative.
+/** Portable wire types. Rust validation remains authoritative.
  * See schemas/ and docs/document-contract.md for constraints and compatibility.
  * No browser or renderer dependencies belong in this module.
  */
-export const DOCUMENT_VERSION = 2 as const;
+export const DOCUMENT_VERSION = 3 as const;
 
 export interface DiagramNode {
   groupId?: string | null;
   id: string;
   kind: "service" | "database" | "queue" | "boundary" | "text" | "rectangle";
+  /** Single-line border title; omitted or empty hides it. */
+  title?: string;
+  /** Defaults to top-middle. */
+  titlePosition?: "top-left" | "top-middle" | "top-right" | "bottom-left" | "bottom-middle" | "bottom-right";
   label: string;
   x: number;
   y: number;
@@ -48,7 +52,7 @@ export interface DiagramPoint { x: number; y: number }
 export type ArrowStyle = "none" | "arrow" | "diamond" | "circle";
 
 export interface DiagramDocument {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   title: string;
   nodes: DiagramNode[];
   edges: DiagramEdge[];

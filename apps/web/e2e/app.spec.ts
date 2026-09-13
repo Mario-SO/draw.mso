@@ -114,7 +114,7 @@ test("edits geometry, undoes, saves, and restores a document", async ({ page }) 
 
   const saved = await saveDocument(page)
   expect(saved.download.suggestedFilename()).toBe("checkout-architecture.mso")
-  expect(saved.document).toMatchObject({ version: 2, title: "Checkout architecture" })
+  expect(saved.document).toMatchObject({ version: 3, title: "Checkout architecture" })
   expect(saved.document.nodes.find((node: { label: string }) => node.label === "Payments API")).toMatchObject({ x: 12, y: 9, width: 28, height: 8 })
 
   await page.reload()

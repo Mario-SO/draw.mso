@@ -26,6 +26,7 @@ On this development machine, the installed stable toolchain is already Rust 1.96
 
 The top-left panel button shows or hides a floating document sidebar. New documents and imported files get separate entries, and the active document is restored on reload. Opening, editing, and saving keep documents in their existing order; new documents append to the list. Double-click the active document (or press F2 while its row is focused) to rename it. Hover over a document to reveal its delete button. Documents stay on this device in IndexedDB; Save downloads a portable `.mso` file. The previous single-document autosave is migrated automatically and retained as a recovery copy.
 
+- Give boxes a separate Title in the inspector. Choose top or bottom and left, middle, or right placement, with body text inside; long titles clip to fit and reappear when widened.
 - Draw boxes by dragging; click for a default size. Shapes are general primitives, with border, fill, shadow, and text controls in the contextual inspector.
 - Click Text to start an auto-fitting text object, or drag to create a wrapping text frame. Double-click or press Enter to edit; Cmd/Ctrl+Enter commits and Escape cancels. Text supports horizontal/vertical placement, padding, wrapping, and directional layout.
 - The Line tool connects shapes or arbitrary grid points. Click two endpoints or drag between them. Side attachments follow shapes as they move. Select a line to configure orthogonal/staircase routing, dashes, markers, and its label; drag an endpoint to reconnect it.
