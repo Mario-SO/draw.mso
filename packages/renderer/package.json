@@ -15,5 +15,8 @@
   "devDependencies": {
     "@draw/typescript-config": "workspace:*",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@draw/diagram-core": "workspace:*"
   }
 }

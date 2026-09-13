@@ -12,7 +12,7 @@ function build() {
   if (closing) return;
   if (child) { rerun = true; return; }
   console.log('[rust-watch] Rebuilding WASM…');
-  child = spawn('wasm-pack', ['build', '--target', 'web', '--out-dir', 'dist', '--out-name', 'index', '--locked'], { cwd, stdio: 'inherit' });
+  child = spawn('wasm-pack', ['build', '--no-pack', '--target', 'web', '--out-dir', 'dist', '--out-name', 'index', '--locked'], { cwd, stdio: 'inherit' });
   child.on('error', error => console.error('[rust-watch]', error.message));
   child.on('close', code => {
     child = undefined;
@@ -24,6 +24,7 @@ function changed() { clearTimeout(timer); timer = setTimeout(build, 200); }
 const watchers = [
   watch(resolve(cwd, 'src'), { recursive: true }, changed),
   watch(resolve(root, 'crates/diagram-core/src'), { recursive: true }, changed),
+  watch(resolve(root, 'schemas'), { recursive: true }, changed),
   ...['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/diagram-core/Cargo.toml', 'packages/engine-wasm/Cargo.toml'].map(path => watch(resolve(root, path), changed)),
 ];
 console.log('[rust-watch] Watching Rust sources. Initial build is managed by Turborepo.');

@@ -6,3 +6,4 @@ target/
 *.tsbuildinfo
 playwright-report/
 test-results/
+benchmark-results/

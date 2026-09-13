@@ -5,6 +5,7 @@
 //! that require terminal-perfect alignment should use single-column labels.
 
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -18,6 +19,10 @@ const MAX_EXPORT_AREA: i64 = 4_000_000;
 const MAX_HISTORY: usize = 100;
 const MAX_ROUTING_OBSTACLES: usize = 64;
 const MAX_ROUTING_LANES: usize = 16;
+
+pub const DOCUMENT_VERSION: u32 = 1;
+pub const DOCUMENT_SCHEMA_JSON: &str = include_str!("../../../schemas/document-v1.schema.json");
+pub const PATCH_SCHEMA_JSON: &str = include_str!("../../../schemas/document-patch-v1.schema.json");
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Document {
@@ -40,7 +45,7 @@ pub struct Node {
     pub height: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum NodeKind {
     Service,
@@ -90,6 +95,14 @@ pub struct Scene {
     pub routes: Vec<Route>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct DisplayScene<'a> {
+    #[serde(rename = "displayCells")]
+    pub display_cells: &'a [Cell],
+    pub bounds: &'a Bounds,
+    pub routes: &'a [Route],
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Cell {
     pub x: i32,
@@ -117,33 +130,92 @@ pub struct Point {
     pub y: i32,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCode {
+    InvalidDocumentJson,
+    InvalidPatchJson,
+    UnsupportedVersion,
+    InvalidDocument,
+    InvalidPatch,
+    ExportTooLarge,
+}
+
+impl ErrorCode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InvalidDocumentJson => "invalid_document_json",
+            Self::InvalidPatchJson => "invalid_patch_json",
+            Self::UnsupportedVersion => "unsupported_version",
+            Self::InvalidDocument => "invalid_document",
+            Self::InvalidPatch => "invalid_patch",
+            Self::ExportTooLarge => "export_too_large",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ErrorPayload {
+    pub code: ErrorCode,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiagramError(String);
+pub struct DiagramError {
+    code: ErrorCode,
+    message: String,
+}
 impl DiagramError {
     fn new(message: impl Into<String>) -> Self {
-        Self(message.into())
+        Self::with_code(ErrorCode::InvalidDocument, message)
+    }
+    fn with_code(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+    pub fn code(&self) -> ErrorCode {
+        self.code
+    }
+    pub fn payload(&self) -> ErrorPayload {
+        ErrorPayload {
+            code: self.code,
+            message: self.message.clone(),
+        }
+    }
+    pub fn json(&self) -> String {
+        serde_json::to_string(&self.payload()).expect("serializable error")
+    }
+    fn with_replaced_code(mut self, code: ErrorCode) -> Self {
+        self.code = code;
+        self
     }
 }
 impl Display for DiagramError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.message)
     }
 }
 impl Error for DiagramError {}
 
 pub fn parse_document(json: &str) -> Result<Document, DiagramError> {
-    let document: Document = serde_json::from_str(json)
-        .map_err(|e| DiagramError::new(format!("invalid document JSON: {e}")))?;
+    let document: Document = serde_json::from_str(json).map_err(|e| {
+        DiagramError::with_code(
+            ErrorCode::InvalidDocumentJson,
+            format!("invalid document JSON: {e}"),
+        )
+    })?;
     validate_document(&document)?;
     Ok(document)
 }
 
 pub fn validate_document(doc: &Document) -> Result<(), DiagramError> {
     if doc.version != 1 {
-        return Err(DiagramError::new(format!(
-            "unsupported document version {}; expected 1",
-            doc.version
-        )));
+        return Err(DiagramError::with_code(
+            ErrorCode::UnsupportedVersion,
+            format!("unsupported document version {}; expected 1", doc.version),
+        ));
     }
     check_text("title", &doc.title)?;
     if doc.nodes.len() > MAX_NODES {
@@ -235,6 +307,14 @@ pub fn validate_document(doc: &Document) -> Result<(), DiagramError> {
 }
 
 fn apply_document_patch(doc: &mut Document, patch: DocumentPatch) -> Result<(), DiagramError> {
+    apply_document_patch_inner(doc, patch)
+        .map_err(|error| error.with_replaced_code(ErrorCode::InvalidPatch))
+}
+
+fn apply_document_patch_inner(
+    doc: &mut Document,
+    patch: DocumentPatch,
+) -> Result<(), DiagramError> {
     let mut node_changes = HashSet::new();
     for id in &patch.removed_node_ids {
         check_id("node", id)?;
@@ -361,6 +441,80 @@ pub struct Engine {
     document: Document,
     undo: Vec<Document>,
     redo: Vec<Document>,
+    route_cache: RefCell<HashMap<String, RouteCacheEntry>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RouteNodeKey {
+    id: String,
+    kind: NodeKind,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+impl From<&Node> for RouteNodeKey {
+    fn from(node: &Node) -> Self {
+        Self {
+            id: node.id.clone(),
+            kind: node.kind,
+            x: node.x,
+            y: node.y,
+            width: node.width,
+            height: node.height,
+        }
+    }
+}
+
+impl RouteNodeKey {
+    fn matches(&self, node: &Node) -> bool {
+        self.id == node.id
+            && self.kind == node.kind
+            && self.x == node.x
+            && self.y == node.y
+            && self.width == node.width
+            && self.height == node.height
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RouteCacheKey {
+    from: RouteNodeKey,
+    to: RouteNodeKey,
+    from_side: Option<Side>,
+    to_side: Option<Side>,
+    bounds: RoutingBounds,
+    routing_nodes: Vec<RouteNodeKey>,
+}
+
+#[derive(Debug, Clone)]
+struct RouteCacheEntry {
+    key: RouteCacheKey,
+    points: Vec<Point>,
+}
+
+impl RouteCacheKey {
+    fn matches(
+        &self,
+        edge: &Edge,
+        from: &Node,
+        to: &Node,
+        bounds: RoutingBounds,
+        routing_nodes: &[&Node],
+    ) -> bool {
+        self.from.matches(from)
+            && self.to.matches(to)
+            && self.from_side == edge.from_side
+            && self.to_side == edge.to_side
+            && self.bounds == bounds
+            && self.routing_nodes.len() == routing_nodes.len()
+            && self
+                .routing_nodes
+                .iter()
+                .zip(routing_nodes)
+                .all(|(key, node)| key.matches(node))
+    }
 }
 
 impl Engine {
@@ -369,6 +523,7 @@ impl Engine {
             document: parse_document(json)?,
             undo: vec![],
             redo: vec![],
+            route_cache: RefCell::new(HashMap::new()),
         })
     }
     pub fn from_document(document: Document) -> Result<Self, DiagramError> {
@@ -377,6 +532,7 @@ impl Engine {
             document,
             undo: vec![],
             redo: vec![],
+            route_cache: RefCell::new(HashMap::new()),
         })
     }
     pub fn document(&self) -> &Document {
@@ -391,14 +547,19 @@ impl Engine {
         Ok(())
     }
     pub fn apply_patch_json(&mut self, json: &str) -> Result<(), DiagramError> {
-        let patch: DocumentPatch = serde_json::from_str(json)
-            .map_err(|e| DiagramError::new(format!("invalid document patch JSON: {e}")))?;
+        let patch: DocumentPatch = serde_json::from_str(json).map_err(|e| {
+            DiagramError::with_code(
+                ErrorCode::InvalidPatchJson,
+                format!("invalid document patch JSON: {e}"),
+            )
+        })?;
         self.apply_patch(patch)
     }
     pub fn apply_patch(&mut self, patch: DocumentPatch) -> Result<(), DiagramError> {
         let mut next = self.document.clone();
         apply_document_patch(&mut next, patch)?;
-        validate_document(&next)?;
+        validate_document(&next)
+            .map_err(|error| error.with_replaced_code(ErrorCode::InvalidPatch))?;
         self.commit(next);
         Ok(())
     }
@@ -431,17 +592,51 @@ impl Engine {
         true
     }
     pub fn scene(&self) -> Scene {
-        compose(&self.document, false)
+        compose_cached(&self.document, false, Some(&self.route_cache))
     }
     pub fn scene_json(&self) -> String {
         serde_json::to_string(&self.scene()).expect("serializable scene")
     }
+    pub fn display_scene_json(&self) -> String {
+        let scene = self.scene();
+        serialize_display_scene(&scene)
+    }
+    pub fn preview_patch_json(&self, json: &str) -> Result<String, DiagramError> {
+        let patch: DocumentPatch = serde_json::from_str(json).map_err(|e| {
+            DiagramError::with_code(
+                ErrorCode::InvalidPatchJson,
+                format!("invalid document patch JSON: {e}"),
+            )
+        })?;
+        let mut document = self.document.clone();
+        apply_document_patch(&mut document, patch)?;
+        validate_document(&document)
+            .map_err(|error| error.with_replaced_code(ErrorCode::InvalidPatch))?;
+        Ok(serialize_display_scene(&compose_cached(
+            &document,
+            false,
+            Some(&self.route_cache),
+        )))
+    }
     pub fn export_text(&self, ascii: bool) -> Result<String, DiagramError> {
-        render_text(&compose(&self.document, ascii))
+        render_text(&compose_cached(
+            &self.document,
+            ascii,
+            Some(&self.route_cache),
+        ))
     }
     pub fn export_svg(&self) -> Result<String, DiagramError> {
         render_svg(&self.scene())
     }
+}
+
+fn serialize_display_scene(scene: &Scene) -> String {
+    serde_json::to_string(&DisplayScene {
+        display_cells: &scene.display_cells,
+        bounds: &scene.bounds,
+        routes: &scene.routes,
+    })
+    .expect("serializable display scene")
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -508,8 +703,14 @@ fn compact_points(points: Vec<Point>) -> Vec<Point> {
         while out.len() >= 2 {
             let (a, _) = out[out.len() - 2];
             let (b, b_index) = out[out.len() - 1];
-            let ab = (b.x - a.x, b.y - a.y);
-            let bp = (point.x - b.x, point.y - b.y);
+            let ab = (
+                i64::from(b.x) - i64::from(a.x),
+                i64::from(b.y) - i64::from(a.y),
+            );
+            let bp = (
+                i64::from(point.x) - i64::from(b.x),
+                i64::from(point.y) - i64::from(b.y),
+            );
             if ((a.x == b.x && b.x == point.x) || (a.y == b.y && b.y == point.y))
                 && ab.0 * bp.0 + ab.1 * bp.1 > 0
                 && b_index != 1
@@ -525,29 +726,127 @@ fn compact_points(points: Vec<Point>) -> Vec<Point> {
     out.into_iter().map(|item| item.0).collect()
 }
 
-fn segment_rect_cells(a: Point, b: Point, node: &Node) -> i64 {
+fn compact_candidate(input: &[Point], output: &mut [Point; 7]) -> usize {
+    let final_index = input.len().saturating_sub(1);
+    let mut source_indices = [0_usize; 7];
+    let mut len = 0;
+    for (index, &point) in input.iter().enumerate() {
+        if len > 0 && output[len - 1] == point {
+            if source_indices[len - 1] != 1 && index + 1 == final_index {
+                source_indices[len - 1] = index;
+            }
+            continue;
+        }
+        while len >= 2 {
+            let a = output[len - 2];
+            let b = output[len - 1];
+            let ab = (
+                i64::from(b.x) - i64::from(a.x),
+                i64::from(b.y) - i64::from(a.y),
+            );
+            let bp = (
+                i64::from(point.x) - i64::from(b.x),
+                i64::from(point.y) - i64::from(b.y),
+            );
+            if ((a.x == b.x && b.x == point.x) || (a.y == b.y && b.y == point.y))
+                && ab.0 * bp.0 + ab.1 * bp.1 > 0
+                && source_indices[len - 1] != 1
+                && source_indices[len - 1] + 1 != final_index
+            {
+                len -= 1;
+            } else {
+                break;
+            }
+        }
+        output[len] = point;
+        source_indices[len] = index;
+        len += 1;
+    }
+    len
+}
+
+struct CandidateContext<'a> {
+    from: &'a Node,
+    to: &'a Node,
+    obstacles: &'a [Rect],
+    source_side: Side,
+    target_side: Side,
+}
+
+fn consider_candidate(
+    input: &[Point],
+    scratch: &mut [Point; 7],
+    context: &CandidateContext<'_>,
+    best: &mut Option<(i64, Vec<Point>)>,
+) {
+    let len = compact_candidate(input, scratch);
+    let candidate = &scratch[..len];
+    if len < 2 || candidate[0] == candidate[1] || candidate[len - 2] == candidate[len - 1] {
+        return;
+    }
+    if let Some(score) = route_score(
+        candidate,
+        context.from,
+        context.to,
+        context.obstacles,
+        context.source_side,
+        context.target_side,
+    ) {
+        // Stable iteration order is the tie breaker.
+        if best.as_ref().is_none_or(|(old, _)| score < *old) {
+            *best = Some((score, candidate.to_vec()));
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Rect {
+    x: i32,
+    y: i32,
+    right: i32,
+    bottom: i32,
+}
+
+impl From<&Node> for Rect {
+    fn from(node: &Node) -> Self {
+        Self {
+            x: node.x,
+            y: node.y,
+            right: node.x + node.width - 1,
+            bottom: node.y + node.height - 1,
+        }
+    }
+}
+
+#[inline]
+fn segment_rect_cells_rect(a: Point, b: Point, rect: Rect) -> i64 {
     if a.x == b.x {
-        if a.x < node.x || a.x >= node.x + node.width {
+        if a.x < rect.x || a.x > rect.right {
             return 0;
         }
-        let lo = a.y.min(b.y).max(node.y);
-        let hi = a.y.max(b.y).min(node.y + node.height - 1);
+        let lo = a.y.min(b.y).max(rect.y);
+        let hi = a.y.max(b.y).min(rect.bottom);
         i64::from((hi - lo + 1).max(0))
     } else {
-        if a.y < node.y || a.y >= node.y + node.height {
+        if a.y < rect.y || a.y > rect.bottom {
             return 0;
         }
-        let lo = a.x.min(b.x).max(node.x);
-        let hi = a.x.max(b.x).min(node.x + node.width - 1);
+        let lo = a.x.min(b.x).max(rect.x);
+        let hi = a.x.max(b.x).min(rect.right);
         i64::from((hi - lo + 1).max(0))
     }
+}
+
+#[cfg(test)]
+fn segment_rect_cells(a: Point, b: Point, node: &Node) -> i64 {
+    segment_rect_cells_rect(a, b, node.into())
 }
 
 fn route_score(
     points: &[Point],
     from: &Node,
     to: &Node,
-    obstacles: &[&Node],
+    obstacles: &[Rect],
     source_side: Side,
     target_side: Side,
 ) -> Option<i64> {
@@ -559,12 +858,16 @@ fn route_score(
         }
     }
     // The attachment is the only cell a route may share with either endpoint node.
-    for node in [from, to] {
+    for (node, first_attachment) in [(from, true), (to, false)] {
+        let rect = Rect::from(node);
         for (index, pair) in points.windows(2).enumerate() {
-            let is_attachment = (std::ptr::eq(node, from) && index == 0)
-                || (std::ptr::eq(node, to) && index + 1 == points.len() - 1);
+            let is_attachment = if first_attachment {
+                index == 0
+            } else {
+                index + 1 == points.len() - 1
+            };
             let allowed = i64::from(is_attachment);
-            if segment_rect_cells(pair[0], pair[1], node) > allowed {
+            if segment_rect_cells_rect(pair[0], pair[1], rect) > allowed {
                 return None;
             }
         }
@@ -574,16 +877,12 @@ fn route_score(
         .windows(2)
         .map(|p| i64::from((p[1].x - p[0].x).abs()) * 9 + i64::from((p[1].y - p[0].y).abs()) * 18)
         .sum();
-    let collisions: i64 = obstacles
-        .iter()
-        .filter(|n| n.kind != NodeKind::Boundary && n.id != from.id && n.id != to.id)
-        .map(|n| {
-            points
-                .windows(2)
-                .map(|p| segment_rect_cells(p[0], p[1], n))
-                .sum::<i64>()
-        })
-        .sum();
+    let mut collisions = 0_i64;
+    for rect in obstacles {
+        for pair in points.windows(2) {
+            collisions += segment_rect_cells_rect(pair[0], pair[1], *rect);
+        }
+    }
     let from_center = (from.x + from.width / 2, from.y + from.height / 2);
     let to_center = (to.x + to.width / 2, to.y + to.height / 2);
     let toward = (to_center.0 - from_center.0, to_center.1 - from_center.1);
@@ -624,12 +923,119 @@ fn route_score(
     )
 }
 
+#[cfg(test)]
 fn route(
     from: &Node,
     to: &Node,
     nodes: &[Node],
     from_side: Option<Side>,
     to_side: Option<Side>,
+) -> Vec<Point> {
+    route_with_bounds(
+        from,
+        to,
+        nodes,
+        from_side,
+        to_side,
+        routing_bounds(nodes, from),
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RoutingBounds {
+    min_x: i32,
+    max_x: i32,
+    min_y: i32,
+    max_y: i32,
+}
+
+fn selected_routing_nodes<'a>(nodes: &'a [Node], from: &Node, to: &Node) -> Vec<&'a Node> {
+    let midpoint = Point {
+        x: (from.x + from.width / 2 + to.x + to.width / 2) / 2,
+        y: (from.y + from.height / 2 + to.y + to.height / 2) / 2,
+    };
+    let mut selected: Vec<&Node> = nodes.iter().collect();
+    selected.sort_by_key(|node| {
+        (node.x + node.width / 2 - midpoint.x).abs() + (node.y + node.height / 2 - midpoint.y).abs()
+    });
+    selected.truncate(MAX_ROUTING_OBSTACLES);
+    selected
+}
+
+fn cached_route(
+    edge: &Edge,
+    from: &Node,
+    to: &Node,
+    nodes: &[Node],
+    bounds: RoutingBounds,
+    cache: &RefCell<HashMap<String, RouteCacheEntry>>,
+) -> Vec<Point> {
+    let routing_nodes = selected_routing_nodes(nodes, from, to);
+    if let Some(points) = cache
+        .borrow()
+        .get(&edge.id)
+        .filter(|entry| entry.key.matches(edge, from, to, bounds, &routing_nodes))
+        .map(|entry| entry.points.clone())
+    {
+        return points;
+    }
+    let points = if from.id == to.id && edge.from_side.is_none() && edge.to_side.is_none() {
+        route_with_bounds(from, to, nodes, edge.from_side, edge.to_side, bounds)
+    } else {
+        route_with_selected(
+            from,
+            to,
+            edge.from_side,
+            edge.to_side,
+            bounds,
+            &routing_nodes,
+        )
+    };
+    let key = RouteCacheKey {
+        from: from.into(),
+        to: to.into(),
+        from_side: edge.from_side,
+        to_side: edge.to_side,
+        bounds,
+        routing_nodes: routing_nodes.into_iter().map(RouteNodeKey::from).collect(),
+    };
+    cache.borrow_mut().insert(
+        edge.id.clone(),
+        RouteCacheEntry {
+            key,
+            points: points.clone(),
+        },
+    );
+    points
+}
+
+fn routing_bounds(nodes: &[Node], fallback: &Node) -> RoutingBounds {
+    let mut bounds = RoutingBounds {
+        min_x: fallback.x,
+        max_x: fallback.x,
+        min_y: fallback.y,
+        max_y: fallback.y,
+    };
+    for node in nodes {
+        bounds.min_x = bounds.min_x.min(node.x);
+        bounds.max_x = bounds.max_x.max(node.x + node.width - 1);
+        bounds.min_y = bounds.min_y.min(node.y);
+        bounds.max_y = bounds.max_y.max(node.y + node.height - 1);
+    }
+    bounds.min_x -= 2;
+    bounds.max_x += 2;
+    bounds.min_y -= 2;
+    bounds.max_y += 2;
+    bounds
+}
+
+fn route_with_bounds(
+    from: &Node,
+    to: &Node,
+    nodes: &[Node],
+    from_side: Option<Side>,
+    to_side: Option<Side>,
+    bounds: RoutingBounds,
 ) -> Vec<Point> {
     if from.id == to.id && from_side.is_none() && to_side.is_none() {
         let start = port(from, Side::Right);
@@ -649,32 +1055,36 @@ fn route(
             port(from, Side::Top),
         ]);
     }
-    let min_x = nodes.iter().map(|n| n.x).min().unwrap_or(from.x) - 2;
-    let max_x = nodes
-        .iter()
-        .map(|n| n.x + n.width - 1)
-        .max()
-        .unwrap_or(from.x)
-        + 2;
-    let min_y = nodes.iter().map(|n| n.y).min().unwrap_or(from.y) - 2;
-    let max_y = nodes
-        .iter()
-        .map(|n| n.y + n.height - 1)
-        .max()
-        .unwrap_or(from.y)
-        + 2;
+    let routing_nodes = selected_routing_nodes(nodes, from, to);
+    route_with_selected(from, to, from_side, to_side, bounds, &routing_nodes)
+}
+
+fn route_with_selected(
+    from: &Node,
+    to: &Node,
+    from_side: Option<Side>,
+    to_side: Option<Side>,
+    bounds: RoutingBounds,
+    routing_nodes: &[&Node],
+) -> Vec<Point> {
+    let RoutingBounds {
+        min_x,
+        max_x,
+        min_y,
+        max_y,
+    } = bounds;
     let midpoint = Point {
         x: (from.x + from.width / 2 + to.x + to.width / 2) / 2,
         y: (from.y + from.height / 2 + to.y + to.height / 2) / 2,
     };
-    let mut routing_nodes: Vec<&Node> = nodes.iter().collect();
-    routing_nodes.sort_by_key(|node| {
-        (node.x + node.width / 2 - midpoint.x).abs() + (node.y + node.height / 2 - midpoint.y).abs()
-    });
-    routing_nodes.truncate(MAX_ROUTING_OBSTACLES);
+    let collision_rects: Vec<Rect> = routing_nodes
+        .iter()
+        .filter(|node| node.kind != NodeKind::Boundary && node.id != from.id && node.id != to.id)
+        .map(|node| Rect::from(*node))
+        .collect();
     let mut x_lanes = Vec::new();
     let mut y_lanes = Vec::new();
-    for node in &routing_nodes {
+    for node in routing_nodes {
         x_lanes.extend([node.x - 1, node.x + node.width]);
         y_lanes.extend([node.y - 1, node.y + node.height]);
     }
@@ -705,8 +1115,16 @@ fn route(
             let target_stub = offset(offset(end, target_side), target_side);
             let middle_x = (source_stub.x + target_stub.x) / 2;
             let middle_y = (source_stub.y + target_stub.y) / 2;
-            let mut candidates = vec![
-                vec![
+            let mut scratch = [start; 7];
+            let context = CandidateContext {
+                from,
+                to,
+                obstacles: &collision_rects,
+                source_side,
+                target_side,
+            };
+            for candidate in [
+                &[
                     start,
                     source_stub,
                     Point {
@@ -715,8 +1133,8 @@ fn route(
                     },
                     target_stub,
                     end,
-                ],
-                vec![
+                ][..],
+                &[
                     start,
                     source_stub,
                     Point {
@@ -725,8 +1143,8 @@ fn route(
                     },
                     target_stub,
                     end,
-                ],
-                vec![
+                ][..],
+                &[
                     start,
                     source_stub,
                     Point {
@@ -739,8 +1157,8 @@ fn route(
                     },
                     target_stub,
                     end,
-                ],
-                vec![
+                ][..],
+                &[
                     start,
                     source_stub,
                     Point {
@@ -753,13 +1171,20 @@ fn route(
                     },
                     target_stub,
                     end,
-                ],
-            ];
+                ][..],
+            ] {
+                consider_candidate(candidate, &mut scratch, &context, &mut best);
+            }
             if source_stub.x == target_stub.x || source_stub.y == target_stub.y {
-                candidates.push(vec![start, source_stub, target_stub, end]);
+                consider_candidate(
+                    &[start, source_stub, target_stub, end],
+                    &mut scratch,
+                    &context,
+                    &mut best,
+                );
             }
             for &x in &x_lanes {
-                candidates.push(vec![
+                let candidate = [
                     start,
                     source_stub,
                     Point {
@@ -772,10 +1197,11 @@ fn route(
                     },
                     target_stub,
                     end,
-                ]);
+                ];
+                consider_candidate(&candidate, &mut scratch, &context, &mut best);
             }
             for &y in &y_lanes {
-                candidates.push(vec![
+                let candidate = [
                     start,
                     source_stub,
                     Point {
@@ -788,29 +1214,8 @@ fn route(
                     },
                     target_stub,
                     end,
-                ]);
-            }
-            for candidate in candidates {
-                let candidate = compact_points(candidate);
-                if candidate.len() < 2
-                    || candidate[0] == candidate[1]
-                    || candidate[candidate.len() - 2] == candidate[candidate.len() - 1]
-                {
-                    continue;
-                }
-                if let Some(score) = route_score(
-                    &candidate,
-                    from,
-                    to,
-                    &routing_nodes,
-                    source_side,
-                    target_side,
-                ) {
-                    // Stable iteration order is the tie breaker.
-                    if best.as_ref().is_none_or(|(old, _)| score < *old) {
-                        best = Some((score, candidate));
-                    }
-                }
+                ];
+                consider_candidate(&candidate, &mut scratch, &context, &mut best);
             }
         }
     }
@@ -839,22 +1244,38 @@ fn route(
     })
 }
 
-fn compose(doc: &Document, ascii: bool) -> Scene {
+fn compose_cached(
+    doc: &Document,
+    ascii: bool,
+    cache: Option<&RefCell<HashMap<String, RouteCacheEntry>>>,
+) -> Scene {
     let nodes: HashMap<&str, &Node> = doc.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
+    let route_bounds = doc
+        .nodes
+        .first()
+        .map(|fallback| routing_bounds(&doc.nodes, fallback));
     let routes: Vec<Route> = doc
         .edges
         .iter()
-        .map(|e| Route {
-            id: e.id.clone(),
-            points: route(
-                nodes[&e.from.as_str()],
-                nodes[&e.to.as_str()],
-                &doc.nodes,
-                e.from_side,
-                e.to_side,
-            ),
+        .map(|e| {
+            let from = nodes[&e.from.as_str()];
+            let to = nodes[&e.to.as_str()];
+            let bounds = route_bounds.unwrap_or_else(|| routing_bounds(&doc.nodes, from));
+            Route {
+                id: e.id.clone(),
+                points: cache.map_or_else(
+                    || route_with_bounds(from, to, &doc.nodes, e.from_side, e.to_side, bounds),
+                    |cache| cached_route(e, from, to, &doc.nodes, bounds, cache),
+                ),
+            }
         })
         .collect();
+    if let Some(cache) = cache {
+        let live_edges: HashSet<&str> = doc.edges.iter().map(|edge| edge.id.as_str()).collect();
+        cache
+            .borrow_mut()
+            .retain(|edge_id, _| live_edges.contains(edge_id.as_str()));
+    }
     let mut map = BTreeMap::<(i32, i32), char>::new();
     for r in &routes {
         draw_route(&mut map, &r.points, ascii);
@@ -1173,9 +1594,10 @@ fn bounds_for(cells: &[Cell]) -> Bounds {
 fn check_area(b: &Bounds) -> Result<(), DiagramError> {
     let area = i64::from(b.width) * i64::from(b.height);
     if area > MAX_EXPORT_AREA {
-        Err(DiagramError::new(format!(
-            "export area {area} exceeds limit {MAX_EXPORT_AREA}"
-        )))
+        Err(DiagramError::with_code(
+            ErrorCode::ExportTooLarge,
+            format!("export area {area} exceeds limit {MAX_EXPORT_AREA}"),
+        ))
     } else {
         Ok(())
     }
@@ -1311,6 +1733,58 @@ mod tests {
     fn validates_references_and_duplicates() {
         assert!(Engine::new(r#"{"version":1,"title":"","nodes":[],"edges":[{"id":"e","from":"x","to":"y","label":""}]}"#).unwrap_err().to_string().contains("missing source"));
         assert!(Engine::new(r#"{"version":1,"title":"","nodes":[{"id":"x","kind":"text","label":"","x":0,"y":0,"width":1,"height":1},{"id":"x","kind":"text","label":"","x":0,"y":0,"width":1,"height":1}],"edges":[]}"#).is_err());
+    }
+    #[test]
+    fn contract_errors_have_stable_codes_and_json() {
+        let malformed = Engine::new("{").unwrap_err();
+        assert_eq!(malformed.code(), ErrorCode::InvalidDocumentJson);
+        assert_eq!(malformed.payload().code, ErrorCode::InvalidDocumentJson);
+        assert!(
+            malformed
+                .json()
+                .contains("\"code\":\"invalid_document_json\"")
+        );
+        let unsupported =
+            Engine::new(r#"{"version":2,"title":"","nodes":[],"edges":[]}"#).unwrap_err();
+        assert_eq!(unsupported.code(), ErrorCode::UnsupportedVersion);
+        let unknown =
+            Engine::new(r#"{"version":1,"title":"","nodes":[],"edges":[],"extra":true}"#).unwrap();
+        assert!(!unknown.document_json().contains("extra"));
+        let mut engine = Engine::new(r#"{"version":1,"title":"","nodes":[],"edges":[]}"#).unwrap();
+        assert_eq!(
+            engine.apply_patch_json("{").unwrap_err().code(),
+            ErrorCode::InvalidPatchJson
+        );
+        assert_eq!(
+            engine
+                .apply_patch_json(r#"{"removedNodeIds":["missing"]}"#)
+                .unwrap_err()
+                .code(),
+            ErrorCode::InvalidPatch
+        );
+    }
+
+    #[test]
+    fn embedded_contract_schemas_are_json() {
+        let document: serde_json::Value = serde_json::from_str(DOCUMENT_SCHEMA_JSON).unwrap();
+        let patch: serde_json::Value = serde_json::from_str(PATCH_SCHEMA_JSON).unwrap();
+        assert_eq!(document["properties"]["version"]["const"], DOCUMENT_VERSION);
+        assert_eq!(document["properties"]["nodes"]["maxItems"], MAX_NODES);
+        assert_eq!(document["properties"]["edges"]["maxItems"], MAX_EDGES);
+        assert_eq!(
+            document["$defs"]["node"]["properties"]["width"]["maximum"],
+            MAX_DIMENSION
+        );
+        assert_eq!(patch["additionalProperties"], false);
+        assert!(patch["properties"]["title"]["oneOf"].is_array());
+    }
+    #[test]
+    fn optional_wire_fields_accept_null_and_normalize_to_omitted() {
+        let document = r#"{"version":1,"title":"","nodes":[{"id":"a","kind":"service","label":"","groupId":null,"x":0,"y":0,"width":1,"height":1},{"id":"b","kind":"service","label":"","x":2,"y":0,"width":1,"height":1}],"edges":[{"id":"e","from":"a","to":"b","label":"","fromSide":null,"toSide":null}]}"#;
+        let mut engine = Engine::new(document).unwrap();
+        assert!(!engine.document_json().contains("null"));
+        engine.apply_patch_json(r#"{"title":null}"#).unwrap();
+        assert_eq!(engine.document().title, "");
     }
     #[test]
     fn connector_and_exports_are_deterministic() {
@@ -1660,6 +2134,172 @@ mod tests {
         ]);
         assert_eq!(points.len(), 3);
         assert_eq!(points[1], Point { x: 4, y: 0 });
+    }
+
+    #[test]
+    fn compact_points_handles_long_valid_segments_without_overflow() {
+        let points = vec![
+            Point {
+                x: -1_000_000,
+                y: 0,
+            },
+            Point { x: 1_000_000, y: 0 },
+            Point { x: 999_999, y: 0 },
+        ];
+        assert_eq!(compact_points(points.clone()), points);
+        let mut output = [Point { x: 0, y: 0 }; 7];
+        let len = compact_candidate(&points, &mut output);
+        assert_eq!(&output[..len], points);
+    }
+
+    #[test]
+    fn stack_candidate_compaction_matches_allocating_reference() {
+        let mut state = 0x6d73_6f31_u32;
+        for len in 2..=7 {
+            for _ in 0..2_000 {
+                let mut points = Vec::with_capacity(len);
+                let mut point = Point { x: 0, y: 0 };
+                points.push(point);
+                for _ in 1..len {
+                    state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    let distance = ((state >> 8) % 7) as i32 - 3;
+                    if state & 1 == 0 {
+                        point.x += distance;
+                    } else {
+                        point.y += distance;
+                    }
+                    points.push(point);
+                }
+                let expected = compact_points(points.clone());
+                let mut output = [Point { x: 0, y: 0 }; 7];
+                let output_len = compact_candidate(&points, &mut output);
+                assert_eq!(&output[..output_len], expected, "input: {points:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn rectangle_intersection_matches_cell_enumeration() {
+        let mut state = 0x726f_7574_u32;
+        for _ in 0..10_000 {
+            let mut next = || {
+                state = state.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                ((state >> 16) % 31) as i32 - 15
+            };
+            let node = node(
+                "obstacle",
+                next(),
+                next(),
+                next().unsigned_abs() as i32 % 8 + 1,
+                next().unsigned_abs() as i32 % 8 + 1,
+            );
+            let a = Point {
+                x: next(),
+                y: next(),
+            };
+            let vertical = next() & 1 == 0;
+            let b = if vertical {
+                Point { x: a.x, y: next() }
+            } else {
+                Point { x: next(), y: a.y }
+            };
+            let expected = segment_points(a, b)
+                .into_iter()
+                .filter(|point| {
+                    point.x >= node.x
+                        && point.x < node.x + node.width
+                        && point.y >= node.y
+                        && point.y < node.y + node.height
+                })
+                .count() as i64;
+            assert_eq!(segment_rect_cells(a, b, &node), expected);
+        }
+    }
+
+    #[test]
+    fn display_scene_and_preview_json_preserve_scene_contract_without_committing() {
+        let engine = Engine::new(&json("api")).unwrap();
+        let display: serde_json::Value =
+            serde_json::from_str(&engine.display_scene_json()).unwrap();
+        let full: serde_json::Value = serde_json::from_str(&engine.scene_json()).unwrap();
+        assert!(display.get("cells").is_none());
+        assert_eq!(display["displayCells"], full["displayCells"]);
+        assert_eq!(display["bounds"], full["bounds"]);
+        assert_eq!(display["routes"], full["routes"]);
+
+        let before = engine.document_json();
+        let preview = engine
+            .preview_patch_json(r#"{"updatedNodes":[{"id":"a","kind":"service","label":"api","x":4,"y":2,"width":8,"height":3}]}"#)
+            .unwrap();
+        let preview: serde_json::Value = serde_json::from_str(&preview).unwrap();
+        assert_ne!(preview["displayCells"], display["displayCells"]);
+        assert_eq!(engine.document_json(), before);
+        assert!(!engine.can_undo());
+    }
+
+    #[test]
+    fn route_cache_matches_uncached_composition_across_document_changes() {
+        let mut engine = Engine::new(&json("api")).unwrap();
+        assert_eq!(
+            engine.scene(),
+            compose_cached(engine.document(), false, None)
+        );
+        assert_eq!(engine.route_cache.borrow().len(), 1);
+
+        engine
+            .apply_patch_json(r#"{"addedNodes":[{"id":"blocker","kind":"queue","label":"q","x":9,"y":-1,"width":3,"height":5}]}"#)
+            .unwrap();
+        assert_eq!(
+            engine.scene(),
+            compose_cached(engine.document(), false, None)
+        );
+        engine
+            .apply_patch_json(r#"{"updatedNodes":[{"id":"a","kind":"service","label":"api","x":2,"y":4,"width":8,"height":3}],"updatedEdges":[{"id":"e","from":"a","to":"b","label":"","fromSide":"bottom","toSide":"top"}]}"#)
+            .unwrap();
+        assert_eq!(
+            engine.scene(),
+            compose_cached(engine.document(), false, None)
+        );
+
+        let document_before_preview = engine.document_json();
+        let preview = engine
+            .preview_patch_json(r#"{"updatedNodes":[{"id":"blocker","kind":"queue","label":"q","x":30,"y":8,"width":3,"height":5}]}"#)
+            .unwrap();
+        let preview_document = {
+            let mut document = engine.document().clone();
+            apply_document_patch(
+                &mut document,
+                serde_json::from_str(r#"{"updatedNodes":[{"id":"blocker","kind":"queue","label":"q","x":30,"y":8,"width":3,"height":5}]}"#).unwrap(),
+            )
+            .unwrap();
+            document
+        };
+        let expected = compose_cached(&preview_document, false, None);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&preview).unwrap(),
+            serde_json::from_str::<serde_json::Value>(&serialize_display_scene(&expected)).unwrap()
+        );
+        assert_eq!(engine.document_json(), document_before_preview);
+        assert!(
+            engine
+                .preview_patch_json(r#"{"removedNodeIds":["missing"]}"#)
+                .is_err()
+        );
+        assert_eq!(engine.document_json(), document_before_preview);
+
+        assert!(engine.undo());
+        assert_eq!(
+            engine.scene(),
+            compose_cached(engine.document(), false, None)
+        );
+        engine
+            .apply_patch_json(r#"{"removedEdgeIds":["e"]}"#)
+            .unwrap();
+        assert_eq!(
+            engine.scene(),
+            compose_cached(engine.document(), false, None)
+        );
+        assert!(engine.route_cache.borrow().is_empty());
     }
 
     #[test]

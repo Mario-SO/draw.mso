@@ -607,3 +607,19 @@ test('sidebar content waits for expansion and rapid toggles cancel pending revea
   await toggle.click()
   await expect(sidebar).toHaveCSS('opacity', '1')
 })
+
+test('structured WASM errors preserve their code through the worker', async ({ page }) => {
+  await page.addInitScript(() => {
+    const target = window as Window & { __DRAW_BENCHMARK_ENABLED__?: boolean; __DRAW_BENCHMARK_SAMPLES__?: unknown[] }
+    target.__DRAW_BENCHMARK_ENABLED__ = true
+    target.__DRAW_BENCHMARK_SAMPLES__ = []
+  })
+  await waitForSample(page)
+  const invalid = { version: 1, title: 'Invalid shape', nodes: 'invalid', edges: [] }
+  await page.locator('input[type=file]').setInputFiles({ name: 'invalid.mso', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(invalid)) })
+  await expect(page.getByRole('alert')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => {
+    const samples = (window as Window & { __DRAW_BENCHMARK_SAMPLES__?: Array<{ name: string; detail?: { code?: string } }> }).__DRAW_BENCHMARK_SAMPLES__ ?? []
+    return samples.find(sample => sample.name === 'editor.workerError')?.detail?.code
+  })).toBe('invalid_document_json')
+})

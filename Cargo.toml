@@ -9,5 +9,5 @@ license = "MIT"
 
 [profile.release]
 lto = true
-opt-level = "s"
+opt-level = 3
 codegen-units = 1

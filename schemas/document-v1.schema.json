@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://draw.mso/schemas/document-v1.schema.json",
+  "title": "draw.mso document v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["version", "title", "nodes", "edges"],
+  "properties": {
+    "version": { "const": 1 },
+    "title": { "$ref": "#/$defs/text" },
+    "nodes": {
+      "type": "array",
+      "maxItems": 2000,
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "edges": {
+      "type": "array",
+      "maxItems": 4000,
+      "items": { "$ref": "#/$defs/edge" }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1 },
+    "text": { "type": "string" },
+    "side": { "enum": ["left", "right", "top", "bottom"] },
+    "node": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "kind", "label", "x", "y", "width", "height"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "enum": ["service", "database", "queue", "boundary", "text"] },
+        "label": { "$ref": "#/$defs/text" },
+        "groupId": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+        "x": { "type": "integer", "minimum": -1000000, "maximum": 1000000 },
+        "y": { "type": "integer", "minimum": -1000000, "maximum": 1000000 },
+        "width": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "height": { "type": "integer", "minimum": 1, "maximum": 10000 }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "from", "to", "label"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "from": { "$ref": "#/$defs/id" },
+        "to": { "$ref": "#/$defs/id" },
+        "label": { "$ref": "#/$defs/text" },
+        "fromSide": { "oneOf": [{ "$ref": "#/$defs/side" }, { "type": "null" }] },
+        "toSide": { "oneOf": [{ "$ref": "#/$defs/side" }, { "type": "null" }] }
+      }
+    }
+  }
+}

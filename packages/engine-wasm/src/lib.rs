@@ -39,6 +39,14 @@ impl Engine {
     pub fn scene(&self) -> String {
         self.inner.scene_json()
     }
+    #[wasm_bindgen(js_name = displayScene)]
+    pub fn display_scene(&self) -> String {
+        self.inner.display_scene_json()
+    }
+    #[wasm_bindgen(js_name = previewPatch)]
+    pub fn preview_patch(&self, json: &str) -> Result<String, JsValue> {
+        self.inner.preview_patch_json(json).map_err(js_error)
+    }
     pub fn export_text(&self, ascii: bool) -> Result<String, JsValue> {
         self.inner.export_text(ascii).map_err(js_error)
     }
@@ -47,6 +55,17 @@ impl Engine {
     }
 }
 
-fn js_error(error: impl std::fmt::Display) -> JsValue {
-    JsValue::from_str(&error.to_string())
+fn js_error(error: draw_diagram_core::DiagramError) -> JsValue {
+    let js_error = js_sys::Error::new(&error.to_string());
+    let _ = js_sys::Reflect::set(
+        js_error.as_ref(),
+        &JsValue::from_str("code"),
+        &JsValue::from_str(error.code().as_str()),
+    );
+    let _ = js_sys::Reflect::set(
+        js_error.as_ref(),
+        &JsValue::from_str("details"),
+        &JsValue::from_str(&error.json()),
+    );
+    js_error.into()
 }

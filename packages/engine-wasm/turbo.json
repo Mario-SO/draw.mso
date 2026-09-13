@@ -1,8 +1,61 @@
 {
-  "extends": ["//"],
+  "extends": [
+    "//"
+  ],
   "tasks": {
-    "build": { "cache": true, "env": ["RUSTUP_TOOLCHAIN", "RUSTFLAGS"], "outputs": ["dist/**"], "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/Cargo.toml", "$TURBO_ROOT$/Cargo.lock", "$TURBO_ROOT$/rust-toolchain.toml", "$TURBO_ROOT$/crates/diagram-core/**"] },
-    "check": { "cache": false, "env": ["RUSTUP_TOOLCHAIN", "RUSTFLAGS"], "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/Cargo.toml", "$TURBO_ROOT$/Cargo.lock", "$TURBO_ROOT$/rust-toolchain.toml", "$TURBO_ROOT$/crates/diagram-core/**"] },
-    "test": { "cache": false, "env": ["RUSTUP_TOOLCHAIN", "RUSTFLAGS"], "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/Cargo.toml", "$TURBO_ROOT$/Cargo.lock", "$TURBO_ROOT$/rust-toolchain.toml", "$TURBO_ROOT$/crates/diagram-core/**"] }
+    "build": {
+      "cache": true,
+      "env": [
+        "RUSTUP_TOOLCHAIN",
+        "RUSTFLAGS"
+      ],
+      "outputs": [
+        "dist/**"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/Cargo.toml",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/rust-toolchain.toml",
+        "$TURBO_ROOT$/crates/diagram-core/src/**",
+        "$TURBO_ROOT$/crates/diagram-core/Cargo.toml",
+        "$TURBO_ROOT$/schemas/document-v1.schema.json",
+        "$TURBO_ROOT$/schemas/document-patch-v1.schema.json"
+      ]
+    },
+    "check": {
+      "cache": false,
+      "env": [
+        "RUSTUP_TOOLCHAIN",
+        "RUSTFLAGS"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/Cargo.toml",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/rust-toolchain.toml",
+        "$TURBO_ROOT$/crates/diagram-core/src/**",
+        "$TURBO_ROOT$/crates/diagram-core/Cargo.toml",
+        "$TURBO_ROOT$/schemas/document-v1.schema.json",
+        "$TURBO_ROOT$/schemas/document-patch-v1.schema.json"
+      ]
+    },
+    "test": {
+      "cache": false,
+      "env": [
+        "RUSTUP_TOOLCHAIN",
+        "RUSTFLAGS"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/Cargo.toml",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/rust-toolchain.toml",
+        "$TURBO_ROOT$/crates/diagram-core/src/**",
+        "$TURBO_ROOT$/crates/diagram-core/Cargo.toml",
+        "$TURBO_ROOT$/schemas/document-v1.schema.json",
+        "$TURBO_ROOT$/schemas/document-patch-v1.schema.json"
+      ]
+    }
   }
 }

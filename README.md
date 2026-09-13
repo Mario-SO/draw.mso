@@ -73,7 +73,7 @@ pnpm --filter @draw/web exec playwright install chromium
 pnpm test:e2e
 ```
 
-The web production output is `apps/web/dist`. Serve it as a static site. Browser tests use Chromium and the actual WASM worker, not a JavaScript engine substitute.
+The web production output is `apps/web/dist`. Serve it as a static site. Browser tests start an isolated production preview on port 4174 and use Chromium with the actual WASM worker. They do not reuse the development server.
 
 ## CLI
 
@@ -85,6 +85,12 @@ cat fixtures/event-driven.mso | cargo run -p draw-cli -- export --format ascii
 ```
 
 Successful validation is silent. Exports go to stdout; errors go to stderr with a nonzero exit code.
+
+## Performance and the document contract
+
+Run `pnpm bench:native` and `pnpm bench:browser` separately for repeatable native-core and production-browser measurements. See [performance baselines](docs/performance/README.md) for methodology and interpretation.
+
+The versioned document and patch schemas, compatibility policy, structured errors, and shared CLI/browser editing semantics are documented in [the document contract](docs/document-contract.md). Portable TypeScript types are exported by `@draw/diagram-core/contract`; the renderer re-exports its existing document types for compatibility.
 
 ## Version 0.1 scope
 

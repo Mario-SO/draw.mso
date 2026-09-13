@@ -1,7 +1,10 @@
+import { decodeEngineResult } from './worker-protocol';
 import { CanvasRenderer, SpatialIndex, CELL_WIDTH, CELL_HEIGHT, type DiagramNode, type DiagramDocument, type DiagramEdge, type Scene, type ConnectionSide } from '@draw/renderer';
 import { sampleDocument } from './sample';
 import { diffDocument } from './document-patch';
 import { LocalDocuments, type DocumentSummary } from './local-documents';
+import { benchmarkEnabled, recordPerformance, type BenchmarkApi } from './performance';
+import type { EngineOperation, EnginePayload, EngineResult, EngineWorkerResponse } from './worker-protocol';
 export type { DiagramNode } from '@draw/renderer';
 export type { DocumentSummary } from './local-documents';
 export type Tool = 'select' | 'pan' | 'connect' | DiagramNode['kind'];
@@ -11,10 +14,9 @@ export interface EditorSnapshot {
   documents: DocumentSummary[]; activeDocumentId: string; documentBusy: boolean;
   zoom: number; canUndo: boolean; canRedo: boolean; status: string; error: string | null;
 }
-interface EngineResult { document: DiagramDocument; scene: Scene; canUndo: boolean; canRedo: boolean }
 const clone = <T>(value: T): T => structuredClone(value);
 const uid = () => crypto.randomUUID();
-type GroupNode = DiagramNode & { groupId?: string };
+type GroupNode = DiagramNode;
 type MoveOrigin = { id: string; x: number; y: number };
 type Drag =
   | { mode: 'pan'; startX: number; startY: number; initialX: number; initialY: number }
@@ -34,7 +36,7 @@ export class Editor {
   private activeDocumentId = '';
   private documentBusy = false;
   private documentOperations = 0;
-  private requests = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>();
+  private requests = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void; startedAt: number; type: EngineOperation }>();
   private requestId = 0;
   private document: DiagramDocument = clone(sampleDocument);
   private scene: Scene | null = null;
@@ -63,8 +65,10 @@ export class Editor {
   private previewTimer: ReturnType<typeof setTimeout> | undefined;
   private previewBusy = false;
   private previewRevision = 0;
+  private benchmarkApi?: BenchmarkApi;
 
   constructor(private host: HTMLElement, private options: { onChange: (snapshot: EditorSnapshot) => void }) {
+    const loadStartedAt = performance.now();
     if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
     host.style.overflow = 'hidden';
     this.canvas.style.cssText = 'display:block;width:100%;height:100%;touch-action:none;outline:none';
@@ -75,12 +79,39 @@ export class Editor {
     this.textarea.style.cssText = 'display:none;position:absolute;z-index:5;resize:none;background:#ffffff;color:#25272d;border:1px solid #007aff;border-radius:8px;padding:10px;outline:none;box-shadow:0 4px 24px #00000012;font-family:"Geist Mono",monospace;box-sizing:border-box;';
     host.append(this.canvas, this.textarea);
     this.renderer = new CanvasRenderer(this.canvas);
+    if (benchmarkEnabled()) {
+      this.benchmarkApi = { firstNodeCenter: () => {
+        const node = this.document.nodes.find(candidate => candidate.kind !== 'boundary') ?? this.document.nodes[0];
+        if (!node) return null;
+        const point = this.renderer.gridToScreen(node.x + node.width / 2, node.y + node.height / 2);
+        const rect = this.canvas.getBoundingClientRect();
+        return { x: rect.left + point.x, y: rect.top + point.y };
+      } };
+      (window as Window & { __DRAW_BENCHMARK_API__?: BenchmarkApi }).__DRAW_BENCHMARK_API__ = this.benchmarkApi;
+    }
     this.worker = new Worker(new URL('./engine.worker.ts', import.meta.url), { type: 'module' });
-    this.worker.onmessage = ({ data }) => {
+    this.worker.onmessage = ({ data }: MessageEvent<EngineWorkerResponse>) => {
       const pending = this.requests.get(data.id);
       if (!pending) return;
       this.requests.delete(data.id);
-      data.error ? pending.reject(new Error(data.error)) : pending.resolve(data.result);
+      if (data.performance) for (const sample of data.performance) recordPerformance(sample);
+      if (data.error) {
+        if (data.error.code) recordPerformance({ name: 'editor.workerError', value: 1, unit: 'count', detail: { command: pending.type, code: data.error.code } });
+        const error = new Error(data.error.message ?? String(data.error));
+        if (data.error.code) Object.assign(error, { code: data.error.code });
+        if (data.error.details) Object.assign(error, { details: data.error.details });
+        pending.reject(error);
+      } else {
+        try {
+          const parseAt = benchmarkEnabled() ? performance.now() : 0;
+          const result = typeof data.result === 'object' && data.result !== null ? decodeEngineResult(data.result) : data.result;
+          recordPerformance({ name: 'editor.engineOutputParse', value: performance.now() - parseAt, unit: 'ms', detail: { command: pending.type } });
+          // Include decoding in the round trip so results stay comparable to the
+          // previous worker-parsed transport rather than hiding work on main.
+          recordPerformance({ name: 'editor.workerRoundTrip', value: performance.now() - pending.startedAt, unit: 'ms', detail: { command: pending.type } });
+          pending.resolve(result);
+        } catch (error) { pending.reject(error instanceof Error ? error : new Error(String(error))); }
+      }
     };
     this.worker.onerror = () => {
       const error = new Error('Could not load the Rust engine. Reload the page and try again.');
@@ -111,7 +142,9 @@ export class Editor {
       if (this.scene && this.autoFit) this.fit();
     });
     this.observer.observe(host);
-    this.ready = this.initialize();
+    this.ready = this.initialize().then(() => {
+      recordPerformance({ name: 'editor.ready', value: performance.now() - loadStartedAt, unit: 'ms' });
+    });
   }
 
   private async initialize() {
@@ -141,12 +174,16 @@ export class Editor {
       this.fit(); this.emit();
     } catch (error) { this.fail(error); }
   }
-  private request(type: string, payload?: unknown): Promise<any> {
+  private request<T = EngineResult>(type: EngineOperation, payload?: EnginePayload): Promise<T> {
     if (this.disposed) return Promise.reject(new Error('Editor closed'));
     const id = ++this.requestId;
-    return new Promise((resolve, reject) => {
-      this.requests.set(id, { resolve, reject });
-      this.worker.postMessage({ id, type, payload });
+    return new Promise<T>((resolve, reject) => {
+      if (benchmarkEnabled() && payload !== undefined) {
+        const encoded = new TextEncoder().encode(JSON.stringify(payload));
+        recordPerformance({ name: 'editor.requestJsonBytes', value: encoded.byteLength, unit: 'bytes', detail: { command: type } });
+      }
+      this.requests.set(id, { resolve: resolve as (value: unknown) => void, reject, startedAt: performance.now(), type });
+      this.worker.postMessage({ id, type, payload, benchmark: benchmarkEnabled() });
     });
   }
   private accept(result: EngineResult) {
@@ -304,6 +341,7 @@ export class Editor {
   zoomBy(factor: number) { this.zoomAt(factor, this.width / 2, this.height / 2); }
   private zoomAt(factor: number, x: number, y: number) {
     this.autoFit = false;
+    this.renderer.markInput('zoom');
     const c = this.renderer.camera; const zoom = Math.max(0.15, Math.min(3, c.zoom * factor));
     this.renderer.setCamera({ x: x - (x - c.x) * zoom / c.zoom, y: y - (y - c.y) * zoom / c.zoom, zoom }); this.emit();
   }
@@ -397,11 +435,11 @@ export class Editor {
     this.download(JSON.stringify(this.document, null, 2) + '\n', 'mso', 'application/json');
   }
   async exportFile(format: 'unicode' | 'ascii' | 'svg') {
-    try { await this.operationQueue; const text = await this.request('export', format); this.download(text, format === 'svg' ? 'svg' : 'txt', format === 'svg' ? 'image/svg+xml' : 'text/plain'); }
+    try { await this.operationQueue; const text = await this.request<string>('export', format); this.download(text, format === 'svg' ? 'svg' : 'txt', format === 'svg' ? 'image/svg+xml' : 'text/plain'); }
     catch (error) { this.fail(error); }
   }
   async copyText() {
-    try { await this.operationQueue; const text = await this.request('export', 'unicode'); await navigator.clipboard.writeText(text); this.status = 'Diagram copied as Unicode text'; this.emit(); }
+    try { await this.operationQueue; const text = await this.request<string>('export', 'unicode'); await navigator.clipboard.writeText(text); this.status = 'Diagram copied as Unicode text'; this.emit(); }
     catch (error) { this.fail(error); }
   }
   private download(text: string, extension: string, mime: string) {
@@ -489,6 +527,7 @@ export class Editor {
     const p = this.local(event); const c = this.renderer.camera;
     if (d.mode === 'pan') {
       this.autoFit = false;
+      this.renderer.markInput('pan');
       this.renderer.setCamera({ ...c, x: d.initialX + p.x - d.startX, y: d.initialY + p.y - d.startY }); return;
     }
     if (d.mode === 'marquee') {
@@ -542,14 +581,21 @@ export class Editor {
       this.previewTimer = undefined;
       const drag = this.drag; if (!drag || (drag.mode !== 'move' && drag.mode !== 'resize') || this.previewBusy) return;
       const revision = this.previewRevision;
-      const doc = clone(this.document);
-      if (drag.mode === 'move') for (const origin of drag.origins) { const node = doc.nodes.find(n => n.id === origin.id)!; node.x = origin.x + drag.dx; node.y = origin.y + drag.dy; }
-      else { const node = doc.nodes.find(n => n.id === drag.node.id)!; node.width = Math.max(8, drag.node.width + drag.dx); node.height = Math.max(node.kind === 'text' ? 1 : 3, drag.node.height + drag.dy); }
+      const changed = new Map<string, DiagramNode>();
+      if (drag.mode === 'move') {
+        for (const node of drag.nodes) changed.set(node.id, { ...node, x: node.x + drag.dx, y: node.y + drag.dy });
+      } else {
+        const node = drag.node;
+        changed.set(node.id, { ...node, width: Math.max(8, node.width + drag.dx), height: Math.max(node.kind === 'text' ? 1 : 3, node.height + drag.dy) });
+      }
+      // Share untouched entities locally; only the changed nodes cross the worker
+      // boundary. Rust validates this temporary patch without touching history.
+      const doc = { ...this.document, nodes: this.document.nodes.map(node => changed.get(node.id) ?? node) };
       this.previewBusy = true;
       try {
-        const result = await this.request('preview', doc);
+        const result = await this.request<Pick<EngineResult, 'scene'>>('previewPatch', { updatedNodes: [...changed.values()] });
         if (this.drag === drag && this.previewRevision === revision) {
-          this.renderer.setScene(result.scene, result.document); this.renderer.setPreview(null); this.renderer.setPreviews([]);
+          this.renderer.setScene(result.scene, doc); this.renderer.setPreview(null); this.renderer.setPreviews([]);
         }
       } catch { /* Invalid out-of-bounds previews are rejected at commit as well. */ }
       finally { this.previewBusy = false; if (this.drag === drag && this.previewRevision !== revision) this.schedulePreview(); }
@@ -586,7 +632,7 @@ export class Editor {
   private wheel = (event: WheelEvent) => {
     event.preventDefault(); const p = this.local(event);
     if (event.ctrlKey || event.metaKey) this.zoomAt(Math.exp(-event.deltaY * 0.008), p.x, p.y);
-    else { this.autoFit = false; const c = this.renderer.camera; this.renderer.setCamera({ ...c, x: c.x - event.deltaX, y: c.y - event.deltaY }); }
+    else { this.autoFit = false; const c = this.renderer.camera; this.renderer.markInput('wheelPan'); this.renderer.setCamera({ ...c, x: c.x - event.deltaX, y: c.y - event.deltaY }); }
   };
   private keyDown = (event: KeyboardEvent) => {
     const target = event.target as HTMLElement;
@@ -623,6 +669,8 @@ export class Editor {
     if (this.initialized) { clearTimeout(this.saveTimer); if (this.status === 'Saving…' && this.activeDocumentId) this.persist(this.activeDocumentId, clone(this.document)); }
     void this.saveQueue.finally(() => this.localDocuments.close());
     this.disposed = true; clearTimeout(this.previewTimer); this.abort.abort(); this.observer.disconnect(); this.renderer.destroy(); this.worker.terminate();
+    const target = window as Window & { __DRAW_BENCHMARK_API__?: BenchmarkApi };
+    if (target.__DRAW_BENCHMARK_API__ === this.benchmarkApi) delete target.__DRAW_BENCHMARK_API__;
     for (const pending of this.requests.values()) pending.reject(new Error('Editor closed'));
     this.requests.clear(); this.canvas.remove(); this.textarea.remove();
   }

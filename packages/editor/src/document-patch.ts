@@ -1,9 +1,5 @@
-import type { DiagramDocument, DiagramNode, DiagramEdge } from '@draw/renderer';
-
-export interface DocumentPatch {
-  removedNodeIds?: string[]; updatedNodes?: DiagramNode[]; addedNodes?: DiagramNode[];
-  removedEdgeIds?: string[]; updatedEdges?: DiagramEdge[]; addedEdges?: DiagramEdge[]; title?: string;
-}
+import type { DiagramDocument, DocumentPatch } from '@draw/diagram-core/contract';
+export type { DocumentPatch } from '@draw/diagram-core/contract';
 
 export function diffDocument(before: DiagramDocument, after: DiagramDocument): DocumentPatch {
     const oldNodes = new Map(before.nodes.map(node => [node.id, node])), newNodes = new Map(after.nodes.map(node => [node.id, node]));

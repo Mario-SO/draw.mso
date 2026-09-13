@@ -1,34 +1,9 @@
 export const CELL_WIDTH = 9;
 export const CELL_HEIGHT = 18;
 
-export interface DiagramNode {
-  groupId?: string;
-  id: string;
-  kind: "service" | "database" | "queue" | "boundary" | "text";
-  label: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export type ConnectionSide = "left" | "right" | "top" | "bottom";
-
-export interface DiagramEdge {
-  fromSide?: ConnectionSide;
-  toSide?: ConnectionSide;
-  id: string;
-  from: string;
-  to: string;
-  label: string;
-}
-
-export interface DiagramDocument {
-  version: 1;
-  title: string;
-  nodes: DiagramNode[];
-  edges: DiagramEdge[];
-}
+import type { DiagramNode, DiagramEdge, DiagramDocument, ConnectionSide } from '@draw/diagram-core/contract';
+import { DisplayCellIndex, type DisplayCell } from './display-cell-index';
+export type { DiagramNode, DiagramEdge, DiagramDocument, ConnectionSide } from '@draw/diagram-core/contract';
 
 export interface GridPoint {
   x: number;
@@ -36,8 +11,9 @@ export interface GridPoint {
 }
 
 export interface Scene {
-  displayCells: Array<{ x: number; y: number; ch: string }>;
-  cells: Array<{ x: number; y: number; ch: string }>;
+  displayCells: DisplayCell[];
+  /** Full terminal composition is optional because Canvas only uses displayCells. */
+  cells?: Array<{ x: number; y: number; ch: string }>;
   bounds: { x: number; y: number; width: number; height: number };
   routes: Array<{ id: string; points: GridPoint[] }>;
 }
@@ -87,6 +63,12 @@ export class CanvasRenderer {
   private dpr = 1;
   private frame: number | null = null;
   private destroyed = false;
+  private pendingInput: { kind: string; at: number } | null = null;
+  private readonly displayCellIndex = new DisplayCellIndex();
+  private nodeKinds = new Map<string, DiagramNode['kind']>();
+  private edgesById = new Map<string, DiagramEdge>();
+  private routeBounds: Array<{ left: number; top: number; right: number; bottom: number }> = [];
+  private previewIds = new Set<string>();
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const context = canvas.getContext("2d");
@@ -110,8 +92,20 @@ export class CanvasRenderer {
   }
 
   setScene(scene: Scene, doc: DiagramDocument): void {
+    if (this.scene === scene && this.document === doc) { this.scheduleRender(); return; }
     this.scene = scene;
     this.document = doc;
+    this.displayCellIndex.update(scene.displayCells);
+    this.nodeKinds = new Map(doc.nodes.map(node => [node.id, node.kind]));
+    this.edgesById = new Map(doc.edges.map(edge => [edge.id, edge]));
+    this.routeBounds = scene.routes.map(route => {
+      let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+      for (const point of route.points) {
+        left = Math.min(left, point.x); top = Math.min(top, point.y);
+        right = Math.max(right, point.x); bottom = Math.max(bottom, point.y);
+      }
+      return { left, top, right, bottom };
+    });
     this.scheduleRender();
   }
 
@@ -131,11 +125,14 @@ export class CanvasRenderer {
 
   setPreview(preview: DragPreview | null): void {
     this.previews = preview ? [preview] : [];
+    this.previewIds = new Set(preview ? [preview.node.id] : []);
     this.scheduleRender();
   }
 
   setPreviews(previews: DragPreview[]): void {
-    this.previews = previews; this.scheduleRender();
+    this.previews = previews;
+    this.previewIds = new Set(previews.map(preview => preview.node.id));
+    this.scheduleRender();
   }
   setMarquee(rect: { x: number; y: number; width: number; height: number } | null): void {
     this.marquee = rect; this.scheduleRender();
@@ -172,6 +169,13 @@ export class CanvasRenderer {
     this.scheduleRender();
   }
 
+  /** Associates the next coalesced frame with a browser input for opt-in benchmarks. */
+  markInput(kind: string): void {
+    if ((globalThis as typeof globalThis & { __DRAW_BENCHMARK_ENABLED__?: boolean }).__DRAW_BENCHMARK_ENABLED__) {
+      this.pendingInput ??= { kind, at: performance.now() };
+    }
+  }
+
   destroy(): void {
     this.destroyed = true;
     if (this.frame !== null) cancelAnimationFrame(this.frame);
@@ -184,8 +188,26 @@ export class CanvasRenderer {
     if (this.destroyed || this.frame !== null) return;
     this.frame = requestAnimationFrame(() => {
       this.frame = null;
+      const benchmarking = Boolean((globalThis as typeof globalThis & { __DRAW_BENCHMARK_ENABLED__?: boolean }).__DRAW_BENCHMARK_ENABLED__);
+      const startedAt = benchmarking ? performance.now() : 0;
       this.paint();
+      if (benchmarking) {
+        const finishedAt = performance.now();
+        this.recordPerformance('renderer.paint', finishedAt - startedAt, 'ms');
+        if (this.pendingInput) {
+          this.recordPerformance('renderer.inputToFrame', finishedAt - this.pendingInput.at, 'ms', { input: this.pendingInput.kind });
+          this.pendingInput = null;
+        }
+      }
     });
+  }
+
+  private recordPerformance(name: string, value: number, unit: 'ms', detail?: Record<string, string>): void {
+    const target = globalThis as typeof globalThis & { __DRAW_BENCHMARK_ENABLED__?: boolean; __DRAW_BENCHMARK_SAMPLES__?: unknown[] };
+    if (!target.__DRAW_BENCHMARK_ENABLED__) return;
+    const sample = { name, value, unit, detail };
+    (target.__DRAW_BENCHMARK_SAMPLES__ ??= []).push(sample);
+    globalThis.dispatchEvent(new CustomEvent('draw:performance', { detail: sample }));
   }
 
   private paint(): void {
@@ -234,8 +256,9 @@ export class CanvasRenderer {
 
   private paintNodeSurfaces(ctx: CanvasRenderingContext2D): void {
     if (!this.document) return;
+    const visible = this.visibleGridBounds();
     for (const node of this.document.nodes) {
-      if (!this.isNodeVisible(node) || node.kind === "text" || node.kind === "boundary" || this.previews.some(preview => preview.node.id === node.id)) continue;
+      if (!this.isNodeVisible(node, visible) || node.kind === "text" || node.kind === "boundary" || this.previewIds.has(node.id)) continue;
       const p = this.gridToScreen(node.x + 0.5, node.y + 0.5);
       const width = (node.width - 1) * CELL_WIDTH * this._camera.zoom;
       const height = (node.height - 1) * CELL_HEIGHT * this._camera.zoom;
@@ -255,59 +278,72 @@ export class CanvasRenderer {
     ctx.lineCap = "butt";
     ctx.lineJoin = "round";
     const oldNodes = this.previews.map(preview => preview.node);
-    for (const cell of this.scene.displayCells) {
-      if (cell.x < visible.left || cell.x > visible.right || cell.y < visible.top || cell.y > visible.bottom) continue;
-      if (oldNodes.some(n => cell.x >= n.x && cell.x < n.x + n.width && cell.y >= n.y && cell.y < n.y + n.height)) continue;
+    let activeStroke = '';
+    const flushLines = () => {
+      if (!activeStroke) return;
+      ctx.stroke();
+      activeStroke = '';
+    };
+    this.displayCellIndex.forEach(visible.left, visible.top, visible.right, visible.bottom, cell => {
+      if (oldNodes.some(n => cell.x >= n.x && cell.x < n.x + n.width && cell.y >= n.y && cell.y < n.y + n.height)) return;
       const p = this.gridToScreen(cell.x + 0.5, cell.y + 0.5);
       const mask = LINE_MASK[cell.ch];
       if (mask) {
-        ctx.strokeStyle = STROKE;
         const hx = CELL_WIDTH * z / 2, hy = CELL_HEIGHT * z / 2;
         const boundary = cell.ch === "┈" || cell.ch === "┊";
         const dashed = boundary || cell.ch === "┄" || cell.ch === "┆";
-        if (boundary) ctx.strokeStyle = "#b7bdc6";
         const doubled = "║═╔╗╚╝".includes(cell.ch);
-        ctx.setLineDash(boundary ? [2 * z, 4 * z] : dashed ? [3 * z, 3 * z] : []);
+        const stroke = boundary ? 'boundary' : dashed ? 'dashed' : 'solid';
+        if (stroke !== activeStroke) {
+          flushLines();
+          activeStroke = stroke;
+          ctx.strokeStyle = boundary ? "#b7bdc6" : STROKE;
+          ctx.setLineDash(boundary ? [2 * z, 4 * z] : dashed ? [3 * z, 3 * z] : []);
+          ctx.beginPath();
+        }
         for (const offset of doubled ? [-1.6 * z, 1.6 * z] : [0]) {
           const cx = p.x + (mask === 10 ? 0 : mask & 2 ? offset : -offset);
           const cy = p.y + (mask === 5 ? 0 : mask & 4 ? offset : -offset);
-          ctx.beginPath();
           if (mask & 1) { ctx.moveTo(cx, cy); ctx.lineTo(cx, p.y - hy); }
           if (mask & 2) { ctx.moveTo(cx, cy); ctx.lineTo(p.x + hx, cy); }
           if (mask & 4) { ctx.moveTo(cx, cy); ctx.lineTo(cx, p.y + hy); }
           if (mask & 8) { ctx.moveTo(cx, cy); ctx.lineTo(p.x - hx, cy); }
-          ctx.stroke();
         }
-        ctx.setLineDash([]);
       } else {
+        flushLines();
+        ctx.setLineDash([]);
         ctx.fillStyle = TEXT;
         ctx.fillText(cell.ch, p.x, p.y);
       }
-    }
+    });
+    flushLines();
+    ctx.setLineDash([]);
   }
 
   private paintArrows(ctx: CanvasRenderingContext2D): void {
     if (!this.scene || !this.document) return;
     const z = this._camera.zoom;
-    const nodes = new Map(this.document.nodes.map(node => [node.id, node]));
-    const edges = new Map(this.document.edges.map(edge => [edge.id, edge]));
+    const visible = this.visibleGridBounds(2);
     ctx.strokeStyle = STROKE; ctx.fillStyle = STROKE;
     ctx.lineWidth = Math.max(0.8, 1.35 * z);
     ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.setLineDash([]);
-    for (const route of this.scene.routes) {
+    for (let routeIndex = 0; routeIndex < this.scene.routes.length; routeIndex++) {
+      const route = this.scene.routes[routeIndex]!;
       if (route.points.length < 2) continue;
+      const bounds = this.routeBounds[routeIndex]!;
+      if (bounds.right < visible.left || bounds.left > visible.right || bounds.bottom < visible.top || bounds.top > visible.bottom) continue;
       const points = route.points.map(p => this.gridToScreen(p.x + .5, p.y + .5));
       const first = points[0], second = points[1];
       const tip = points[points.length - 1], before = points[points.length - 2];
       const dx = Math.sign(tip.x - before.x), dy = Math.sign(tip.y - before.y);
       if (!dx && !dy) continue;
       // Database strokes straddle the logical border; stop at the visible outside edge.
-      const edge = edges.get(route.id);
-      if (edge && nodes.get(edge.from)?.kind === "database") {
+      const edge = this.edgesById.get(route.id);
+      if (edge && this.nodeKinds.get(edge.from) === "database") {
         first.x += Math.sign(second.x - first.x) * 1.6 * z;
         first.y += Math.sign(second.y - first.y) * 1.6 * z;
       }
-      if (edge && nodes.get(edge.to)?.kind === "database") {
+      if (edge && this.nodeKinds.get(edge.to) === "database") {
         tip.x -= dx * 1.6 * z; tip.y -= dy * 1.6 * z;
       }
       ctx.beginPath(); ctx.moveTo(first.x, first.y);
@@ -335,12 +371,13 @@ export class CanvasRenderer {
 
   private paintNodeOverlays(ctx: CanvasRenderingContext2D): void {
     if (!this.document) return;
+    const visible = this.visibleGridBounds();
     for (const node of this.document.nodes) {
       const selected = this.selected.has(node.id);
       const source = this.connectSource === node.id;
-      if (this.previews.some(preview => preview.node.id === node.id)) continue;
+      if (this.previewIds.has(node.id)) continue;
       const hover = this.connectHover === node.id;
-      if ((!selected && !source && !hover) || !this.isNodeVisible(node)) continue;
+      if ((!selected && !source && !hover) || !this.isNodeVisible(node, visible)) continue;
       this.strokeNode(ctx, node, BLUE, selected);
       if (selected && this.selected.size === 1) this.paintHandle(ctx, node.x + node.width - 0.5, node.y + node.height - 0.5);
       if (source || hover) this.paintPorts(ctx, node);
@@ -435,10 +472,10 @@ export class CanvasRenderer {
     ctx.restore();
   }
 
-  private isNodeVisible(node: DiagramNode): boolean {
-    const visible = this.visibleGridBounds();
+  private isNodeVisible(node: DiagramNode, visible = this.visibleGridBounds()): boolean {
     return node.x + node.width >= visible.left && node.x <= visible.right && node.y + node.height >= visible.top && node.y <= visible.bottom;
   }
 }
 
 export { SpatialIndex } from "./spatial-index";
+export { DisplayCellIndex, type DisplayCell } from './display-cell-index';

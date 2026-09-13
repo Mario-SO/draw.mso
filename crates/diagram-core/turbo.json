@@ -1,9 +1,87 @@
 {
-  "extends": ["//"],
+  "extends": [
+    "//"
+  ],
   "tasks": {
-    "build": { "cache": false, "env": ["RUSTUP_TOOLCHAIN", "RUSTFLAGS"], "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/Cargo.toml", "$TURBO_ROOT$/Cargo.lock", "$TURBO_ROOT$/rust-toolchain.toml"] },
-    "check": { "cache": false, "env": ["RUSTUP_TOOLCHAIN", "RUSTFLAGS"], "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/Cargo.toml", "$TURBO_ROOT$/Cargo.lock", "$TURBO_ROOT$/rust-toolchain.toml"] },
-    "lint": { "cache": false, "env": ["RUSTUP_TOOLCHAIN", "RUSTFLAGS"], "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/Cargo.toml", "$TURBO_ROOT$/Cargo.lock", "$TURBO_ROOT$/rust-toolchain.toml"] },
-    "test": { "cache": false, "env": ["RUSTUP_TOOLCHAIN", "RUSTFLAGS"], "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/Cargo.toml", "$TURBO_ROOT$/Cargo.lock", "$TURBO_ROOT$/rust-toolchain.toml"] }
+    "build": {
+      "cache": false,
+      "env": [
+        "RUSTUP_TOOLCHAIN",
+        "RUSTFLAGS"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/Cargo.toml",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/rust-toolchain.toml",
+        "$TURBO_ROOT$/schemas/document-v1.schema.json",
+        "$TURBO_ROOT$/schemas/document-patch-v1.schema.json"
+      ]
+    },
+    "check": {
+      "cache": false,
+      "env": [
+        "RUSTUP_TOOLCHAIN",
+        "RUSTFLAGS"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/Cargo.toml",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/rust-toolchain.toml",
+        "$TURBO_ROOT$/schemas/document-v1.schema.json",
+        "$TURBO_ROOT$/schemas/document-patch-v1.schema.json"
+      ]
+    },
+    "lint": {
+      "cache": false,
+      "env": [
+        "RUSTUP_TOOLCHAIN",
+        "RUSTFLAGS"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/Cargo.toml",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/rust-toolchain.toml",
+        "$TURBO_ROOT$/schemas/document-v1.schema.json",
+        "$TURBO_ROOT$/schemas/document-patch-v1.schema.json"
+      ]
+    },
+    "test": {
+      "cache": false,
+      "env": [
+        "RUSTUP_TOOLCHAIN",
+        "RUSTFLAGS"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/Cargo.toml",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/rust-toolchain.toml",
+        "$TURBO_ROOT$/schemas/document-v1.schema.json",
+        "$TURBO_ROOT$/schemas/document-patch-v1.schema.json"
+      ],
+      "dependsOn": [
+        "^build",
+        "test:bench"
+      ]
+    },
+    "bench:native": {
+      "cache": false,
+      "env": [
+        "RUSTUP_TOOLCHAIN",
+        "RUSTFLAGS"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/Cargo.toml",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/rust-toolchain.toml",
+        "$TURBO_ROOT$/schemas/document-v1.schema.json",
+        "$TURBO_ROOT$/schemas/document-patch-v1.schema.json",
+        "$TURBO_ROOT$/fixtures/benchmarks/**"
+      ]
+    }
   }
 }

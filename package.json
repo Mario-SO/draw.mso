@@ -1,5 +1,19 @@
 {
-  "name": "draw-mso", "private": true, "packageManager": "pnpm@11.19.0",
-  "scripts": { "dev": "turbo run dev", "build": "turbo run build", "check": "turbo run check", "test": "turbo run test", "lint": "turbo run lint", "test:e2e": "turbo run test:e2e" },
-  "devDependencies": { "turbo": "^2.8.0" }
+  "name": "draw-mso",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "check": "turbo run check",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "test:e2e": "turbo run test:e2e",
+    "bench:native": "turbo run bench:native",
+    "bench:browser": "turbo run bench:browser",
+    "bench:compare": "turbo run bench:compare"
+  },
+  "devDependencies": {
+    "turbo": "^2.8.0"
+  }
 }

@@ -14,7 +14,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "wasm-pack build --locked --target web --out-dir dist --out-name index",
+    "build": "wasm-pack build --no-pack --locked --target web --out-dir dist --out-name index",
     "check": "cargo check --locked -p draw-engine-wasm",
     "test": "cargo test --locked -p draw-engine-wasm",
     "dev": "node scripts/watch.mjs"

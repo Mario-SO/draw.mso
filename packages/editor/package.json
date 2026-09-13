@@ -12,7 +12,8 @@
   "dependencies": {
     "@draw/renderer": "workspace:*",
     "@draw/engine-wasm": "workspace:*",
-    "dexie": "^4.3.0"
+    "dexie": "^4.3.0",
+    "@draw/diagram-core": "workspace:*"
   },
   "devDependencies": {
     "@draw/typescript-config": "workspace:*",

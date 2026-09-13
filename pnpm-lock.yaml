@@ -77,6 +77,9 @@ importers:
 
   packages/editor:
     dependencies:
+      '@draw/diagram-core':
+        specifier: workspace:*
+        version: link:../../crates/diagram-core
       '@draw/engine-wasm':
         specifier: workspace:*
         version: link:../engine-wasm
@@ -104,6 +107,10 @@ importers:
         version: link:../../crates/diagram-core
 
   packages/renderer:
+    dependencies:
+      '@draw/diagram-core':
+        specifier: workspace:*
+        version: link:../../crates/diagram-core
     devDependencies:
       '@draw/typescript-config':
         specifier: workspace:*
