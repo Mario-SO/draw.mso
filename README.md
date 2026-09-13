@@ -29,7 +29,7 @@ The top-left panel button shows or hides a floating document sidebar. New docume
 - Draw boxes by dragging; click for a default size. Shapes are general primitives, with border, fill, shadow, and text controls in the contextual inspector.
 - Click Text to start an auto-fitting text object, or drag to create a wrapping text frame. Double-click or press Enter to edit; Cmd/Ctrl+Enter commits and Escape cancels. Text supports horizontal/vertical placement, padding, wrapping, and directional layout.
 - The Line tool connects shapes or arbitrary grid points. Click two endpoints or drag between them. Side attachments follow shapes as they move. Select a line to configure orthogonal/staircase routing, dashes, markers, and its label; drag an endpoint to reconnect it.
-- Pencil paints the current character, Eraser removes drawn text cells, Fill sets a box’s background character without changing its text, and Picker samples a displayed character. A pencil stroke is a single undo step and its compact text runs are grouped for movement. Drawing remains on this device.
+- Fill sets a box’s background character without changing its text. Drawing remains on this device.
 - The Objects panel selects, hides, locks, and reorders shapes. Hidden shapes and their connections are excluded from exports; locking prevents canvas movement. This is a flat object list, with the existing flat groups.
 - Shift-click to add or remove objects from a selection, or drag an empty area to select several. Cmd/Ctrl+A selects all available objects.
 - Group with Cmd/Ctrl+G; click a member to select its group. Cmd/Ctrl+Shift+G ungroups. Duplicate preserves internal connections.
@@ -42,7 +42,7 @@ The top-left panel button shows or hides a floating document sidebar. New docume
 | --- | --- |
 | V / H | Select / pan |
 | R / T / L | Rectangle / text / line |
-| P / E / B / I | Pencil / eraser / fill / picker |
+| B | Fill |
 | F or 1 | Fit diagram |
 | Tab on canvas | Cycle through nodes |
 | Arrow keys / Shift+arrows | Move selection by 1 / 5 cells |

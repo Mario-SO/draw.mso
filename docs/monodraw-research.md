@@ -89,7 +89,7 @@ Pencil paints the current character with the left mouse button and erases with t
 
 When Pencil is active, the selected editing target remains clear while other shapes fade. Eraser removes custom content across shapes. Bucket Fill floods a connected region within a particular shape. Character palettes can be customized; built-in palettes cover ASCII, geometric shapes, and block elements. Reset Content removes custom edits without deleting the shape.[^9][^13][^16]
 
-**Implication for draw.mso:** freehand tools need an explicit edit target and must create sparse per-shape overrides rather than destructive edits to the final composed canvas. Empty-canvas drawing should create or extend a Surface. Picker sets a document-local active glyph. Eraser removes overrides first; it should not delete generated borders. Bucket Fill operates on the selected shape’s composed local-cell region and writes overrides as one undo transaction.
+**Implication for draw.mso:** freehand tools need an explicit edit target and must create sparse per-shape overrides rather than destructive edits to the final composed canvas. Empty-canvas drawing should create or extend a Surface. Bucket Fill operates on the selected shape’s composed local-cell region and writes overrides as one undo transaction.
 
 ## Lines, routing, arrows, and labels
 
@@ -150,9 +150,9 @@ Context menus are essential for discoverable, geometry-specific operations: add 
 
 ## Recommended delivery order for draw.mso
 
-1. **Neutral primitives and presets:** replace the domain toolbar with Select, Pan, Rect, Text, Line, Pencil, Fill, Picker, and Eraser. Migrate old node kinds to rectangular style presets on import.
+1. **Neutral primitives and presets:** replace the domain toolbar with Select, Pan, Rect, Text, Line, and Fill. Migrate old node kinds to rectangular style presets on import.
 2. **Unified rectangle content:** independent text/border/fill/shadow, embedded text, text padding/alignment, border/fill glyph presets, and a Surface preset.
-3. **Character overrides:** sparse per-shape custom content, Edit mode, document-local active character, Picker/Eraser/Fill, content reset, and one-gesture undo.
+3. **Character overrides:** sparse per-shape custom content, Edit mode, document-local active character, Fill, content reset, and one-gesture undo.
 4. **Connection parity:** line modes, editable stable waypoints, start/end markers, dash patterns, attachment points with preferred directions, and edge labels implemented as attached text rectangles.
 5. **Structure and efficiency:** shape tree, nested groups, hide/lock, z-order, copy/paste style, styles inherited on create, snippets, deep selection, and focus workflow.
 6. **Advanced text and output:** vertical/reversed sweep and line movement, FIGlet fonts, tracing images, flatten, blended Unicode junctions, and output color for SVG/PNG.

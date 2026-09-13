@@ -2,7 +2,7 @@ import { ObjectsPanel } from "./ObjectsPanel"
 import { NodeInspector, LineInspector } from "./ToolInspector"
 import { DocumentSidebar } from "./DocumentSidebar"
 import { useEffect, useRef, useState, type ReactNode } from "react"
-import { AlignHorizontalJustifyStart, Group, Ungroup, Layers, CircleHelp, Copy, Download, FilePlus2, FolderOpen, Square, Pencil, Eraser, PaintBucket, Pipette, Hand, Link2, LocateFixed, PanelLeft, MessageSquareText, MousePointer2, Redo2, Save, Trash2, Undo2, X, ZoomIn, ZoomOut } from "lucide-react"
+import { AlignHorizontalJustifyStart, Group, Ungroup, Layers, CircleHelp, Copy, Download, FilePlus2, FolderOpen, Square, PaintBucket, Hand, Link2, LocateFixed, PanelLeft, MessageSquareText, MousePointer2, Redo2, Save, Trash2, Undo2, X, ZoomIn, ZoomOut } from "lucide-react"
 import { type Editor, type EditorSnapshot, type Tool } from "@draw/editor"
 import { Button } from "@draw/ui/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@draw/ui/components/ui/dialog"
@@ -17,10 +17,7 @@ const tools: Array<{ tool: Tool; label: string; key: string; icon: ReactNode }> 
   { tool: "rectangle", label: "Rectangle", key: "R", icon: <Square /> },
   { tool: "text", label: "Text", key: "T", icon: <MessageSquareText /> },
   { tool: "line", label: "Line", key: "L", icon: <Link2 /> },
-  { tool: "pencil", label: "Pencil", key: "P", icon: <Pencil /> },
-  { tool: "eraser", label: "Eraser", key: "E", icon: <Eraser /> },
   { tool: "fill", label: "Fill", key: "B", icon: <PaintBucket /> },
-  { tool: "picker", label: "Picker", key: "I", icon: <Pipette /> },
 ]
 
 function TipButton({ label, shortcut, children, ...props }: React.ComponentProps<typeof Button> & { label: string; shortcut?: string }) {
@@ -55,7 +52,7 @@ export default function App() {
       <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Align selection" />}><AlignHorizontalJustifyStart /></DropdownMenuTrigger><DropdownMenuContent align="end">{([['left','Align left'],['center','Align horizontal centers'],['right','Align right'],['top','Align top'],['middle','Align vertical centers'],['bottom','Align bottom']] as const).map(([alignment,label]) => <DropdownMenuItem key={alignment} onClick={() => editor()?.alignSelection(alignment)}>{label}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
       <TipButton label="Duplicate selection" shortcut="⌘D" variant="ghost" size="icon-sm" onClick={() => editor()?.duplicateSelection()}><Copy /></TipButton><TipButton label="Delete selection" variant="ghost" size="icon-sm" onClick={() => editor()?.deleteSelection()}><Trash2 /></TipButton>
     </div></aside>}
-    {['pencil', 'eraser', 'fill', 'picker'].includes(snapshot.tool) && <aside className="character-panel" aria-label="Drawing character"><label htmlFor="drawing-character">Character</label><Input id="drawing-character" value={snapshot.drawingCharacter} onChange={e => editor()?.setDrawingCharacter(Array.from(e.target.value).at(-1) ?? '#')} /><div className="character-swatches">{['#', '█', '░', '·', '─', '│', '┼', '○', '*'].map(character => <button key={character} aria-label={`Use character ${character}`} aria-pressed={snapshot.drawingCharacter === character} onClick={() => editor()?.setDrawingCharacter(character)}>{character}</button>)}</div><p>{snapshot.tool === 'picker' ? 'Click a character to sample it.' : snapshot.tool === 'fill' ? 'Click a box to set its background fill.' : snapshot.tool === 'eraser' ? 'Drag across text to erase characters.' : 'Drag to draw. Type a character to change your pencil.'}</p></aside>}
+    {snapshot.tool === 'fill' && <aside className="character-panel" aria-label="Drawing character"><label htmlFor="drawing-character">Character</label><Input id="drawing-character" value={snapshot.drawingCharacter} onChange={e => editor()?.setDrawingCharacter(Array.from(e.target.value).at(-1) ?? '#')} /><div className="character-swatches">{['#', '█', '░', '·', '─', '│', '┼', '○', '*'].map(character => <button key={character} aria-label={`Use character ${character}`} aria-pressed={snapshot.drawingCharacter === character} onClick={() => editor()?.setDrawingCharacter(character)}>{character}</button>)}</div><p>Click a box to set its background fill.</p></aside>}
     {<ObjectsPanel open={objectsOpen} nodes={snapshot.objects} selectedId={snapshot.selected?.id} select={id => editor()?.selectObject(id)} update={(id, patch) => editor()?.updateObject(id, patch)} order={direction => editor()?.reorderSelection(direction)} close={() => { togglePanel(null); objectsToggle.current?.focus() }} />}
     {snapshot.selectedEdge && <LineInspector edge={snapshot.selectedEdge} update={patch => editor()?.updateSelectedEdge(patch)} duplicate={() => editor()?.duplicateSelection()} remove={() => editor()?.deleteSelection()} />}
     {snapshot.selected && <NodeInspector key={snapshot.selected.id} node={snapshot.selected} connections={snapshot.connections} update={p => editor()?.updateSelected(p)} updateEdge={(id,l) => editor()?.updateEdge(id,l)} deleteEdge={id => editor()?.deleteEdge(id)} duplicate={() => editor()?.duplicateSelection()} remove={() => editor()?.deleteSelection()} />}</section></main></TooltipProvider>

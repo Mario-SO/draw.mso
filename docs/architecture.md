@@ -31,7 +31,7 @@ Autosave is a convenience copy in IndexedDB, separate from exported user-owned f
 - The core caps node/edge counts and bounding area to avoid excessive allocations. This is an effectively large working canvas, not mathematically unbounded storage.
 - Unicode terminal display width differs by font and terminal. One scalar is one logical cell in this version.
 - Boundaries are visual outlines; moving one does not move its enclosed nodes.
-- No multiplayer, cloud storage, or auto-layout. Pencil drawing uses compact grouped text runs; semantic character overrides on generated shapes are not yet supported. PNG rasterizes the Rust SVG locally.
+- No multiplayer, cloud storage, or auto-layout. Semantic character overrides on generated shapes are not yet supported. PNG rasterizes the Rust SVG locally.
 
 Tests cover accepted/rejected documents, connector geometry, exports, history, and real browser editing/file workflows. Performance targets from planning remain targets until measured on specified hardware.
 
@@ -43,4 +43,4 @@ See [performance baselines](performance/README.md) for the repeatable measuremen
 
 ## General-purpose tooling
 
-Tool gestures remain outside React state. Rectangle/text creation, pencil strokes, endpoint reconnection, and object ordering each commit one atomic patch. Pencil strokes are compressed into horizontal runs and grouped instead of allocating a node per cell. Fill changes the hit box’s fill property in one patch, preserving its label and creating no text nodes. Empty-canvas and locked-box clicks do not change the document. Locked/hidden nodes are skipped by canvas hit testing; the object panel can reveal or unlock them. Hidden nodes and incident connectors are excluded by Rust from composition and exports.
+Tool gestures remain outside React state. Rectangle/text creation, endpoint reconnection, and object ordering each commit one atomic patch. Fill changes the hit box’s fill property in one patch, preserving its label and creating no text nodes. Empty-canvas and locked-box clicks do not change the document. Locked/hidden nodes are skipped by canvas hit testing; the object panel can reveal or unlock them. Hidden nodes and incident connectors are excluded by Rust from composition and exports.

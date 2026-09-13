@@ -169,36 +169,6 @@ test("creates and styles a free line", async ({ page }) => {
   expect(moved.document.edges[0].toPoint).toEqual({ x: originalEnd.x + 4, y: originalEnd.y + 2 })
 })
 
-test("commits a pencil stroke as one undoable transaction", async ({ page }) => {
-  await waitForEditor(page)
-  await newDocument(page)
-  const box = await canvasBox(page)
-  const start = { x: box.x + box.width / 2 - 54, y: box.y + box.height / 2 }
-  const end = { x: start.x + 10 * 9, y: start.y + 3 * 18 }
-
-  await page.getByRole("button", { name: "Pencil", exact: true }).click()
-  await page.getByLabel("Character", { exact: true }).fill("*")
-  await page.mouse.move(start.x, start.y)
-  await page.mouse.down()
-  await page.mouse.move(end.x, end.y, { steps: 12 })
-  await page.mouse.up()
-
-  const drawn = await saveDocument(page)
-  expect(drawn.document.nodes.length).toBeGreaterThan(0)
-  for (const node of drawn.document.nodes) {
-    expect(node).toMatchObject({ kind: "text", textAlign: "left", verticalAlign: "top", wrap: false })
-    expect(node.label).toContain("*")
-  }
-
-  await page.getByRole("button", { name: "Undo" }).click()
-  await expect(page.locator(".canvas-meta")).toContainText("0 nodes")
-  expect((await saveDocument(page)).document.nodes).toEqual([])
-
-  await page.getByRole("button", { name: "Redo" }).click()
-  await expect(page.locator(".canvas-meta")).toContainText(`${drawn.document.nodes.length} nodes`)
-  expect((await saveDocument(page)).document).toEqual(drawn.document)
-})
-
 test("imports plain text and exports a valid PNG", async ({ page }) => {
   await waitForEditor(page)
   await page.locator('input[type="file"]').setInputFiles({

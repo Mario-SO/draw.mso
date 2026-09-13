@@ -8,7 +8,7 @@ import { svgToPng } from './png-export';
 import type { EngineOperation, EnginePayload, EngineResult, EngineWorkerResponse } from './worker-protocol';
 export type { DiagramNode, DiagramEdge } from '@draw/renderer';
 export type { DocumentSummary } from './local-documents';
-export type Tool = 'select' | 'pan' | 'rectangle' | 'text' | 'line' | 'pencil' | 'eraser' | 'fill' | 'picker';
+export type Tool = 'select' | 'pan' | 'rectangle' | 'text' | 'line' | 'fill';
 export interface EditorSnapshot {
   title: string; tool: Tool; selected: DiagramNode | null; selectedEdge: DiagramEdge | null; connections: DiagramEdge[]; nodeCount: number; edgeCount: number;
   objects: DiagramNode[];
@@ -41,7 +41,6 @@ type Drag =
   | { mode: 'move'; startX: number; startY: number; nodes: DiagramNode[]; origins: MoveOrigin[]; dx: number; dy: number }
   | { mode: 'resize'; startX: number; startY: number; node: DiagramNode; handle: ResizeHandle; dx: number; dy: number }
   | { mode: 'create'; tool: 'rectangle' | 'text'; startX: number; startY: number; currentX: number; currentY: number }
-  | { mode: 'draw'; tool: 'pencil' | 'eraser'; points: GridPoint[]; last: GridPoint }
   | { mode: 'create-line'; startScreenX: number; startScreenY: number; from: GridPoint; current: GridPoint }
   | { mode: 'edge-endpoint'; edge: DiagramEdge; endpoint: 'from' | 'to'; fixed: GridPoint; current: GridPoint }
   | { mode: 'move-edge'; edge: DiagramEdge; startX: number; startY: number; dx: number; dy: number };
@@ -275,7 +274,7 @@ export class Editor {
     if (this.drag) this.pointerCancel();
     this.finishText(); this.tool = tool; this.sourceId = null; this.sourceSide = undefined; this.sourcePoint = undefined; this.sourcePreviewPoint = undefined; this.renderer.setConnectSource(null); this.renderer.setConnectHover(null); this.renderer.setLinePreview(null);
     this.canvas.style.cursor = tool === 'pan' ? 'grab' : tool === 'select' ? 'default' : 'crosshair';
-    this.status = tool === 'line' ? 'Click or drag from a start point to an end point' : tool === 'select' ? 'Select and arrange objects' : tool === 'pan' ? 'Drag to pan the canvas' : tool === 'picker' ? 'Click a character to pick it' : tool === 'fill' ? 'Click a box to set its background fill' : `Drag to use the ${tool} tool`;
+    this.status = tool === 'line' ? 'Click or drag from a start point to an end point' : tool === 'select' ? 'Select and arrange objects' : tool === 'pan' ? 'Drag to pan the canvas' : tool === 'fill' ? 'Click a box to set its background fill' : `Drag to use the ${tool} tool`;
     this.emit();
   }
   setDrawingCharacter(value: string) {
@@ -589,10 +588,6 @@ export class Editor {
     if (this.tool === 'rectangle' || this.tool === 'text') {
       this.drag = { mode: 'create', tool: this.tool, startX: cell.x, startY: cell.y, currentX: cell.x, currentY: cell.y }; return;
     }
-    if (this.tool === 'pencil' || this.tool === 'eraser') {
-      this.drag = { mode: 'draw', tool: this.tool, points: [cell], last: cell }; return;
-    }
-    if (this.tool === 'picker') { this.pickCharacter(cell); return; }
     if (this.tool === 'fill') { this.fillArea(cell); return; }
     if (this.tool === 'select' && this.selectedEdgeId) {
       const selectedRoute = this.scene?.routes.find(route => route.id === this.selectedEdgeId), first = selectedRoute?.points[0], last = selectedRoute?.points.at(-1), selectedEdge = this.selectedEdge;
@@ -691,15 +686,6 @@ export class Editor {
       const g = this.renderer.screenToGrid(p.x, p.y); d.currentX = Math.round(g.x); d.currentY = Math.round(g.y);
       const node = this.createdNode(d, false); this.renderer.setPreview({ node, dx: 0, dy: 0 }); return;
     }
-    if (d.mode === 'draw') {
-      const g = this.renderer.screenToGrid(p.x, p.y), next = { x: Math.round(g.x), y: Math.round(g.y) };
-      if (next.x !== d.last.x || next.y !== d.last.y) {
-        for (const point of this.gridLine(d.last, next).slice(1)) { if (d.points.length >= 10_000) break; d.points.push(point); }
-        d.last = next;
-      }
-      if (d.tool === 'pencil') this.renderer.setPreviews(this.drawingNodes(d.points, '__drawing_preview__').map(node => ({ node, dx: 0, dy: 0 })));
-      return;
-    }
     if (d.mode === 'create-line') {
       const g = this.renderer.screenToGrid(p.x, p.y); d.current = { x: Math.round(g.x), y: Math.round(g.y) };
       this.renderer.setLinePreview({ from: d.from, to: d.current }); return;
@@ -779,7 +765,6 @@ export class Editor {
       if (node.kind === 'text') void this.operationQueue.then(() => { const accepted = this.document.nodes.find(n => n.id === node.id); if (accepted) this.editText(accepted); });
       return;
     }
-    if (d.mode === 'draw') { this.commitDrawing(d.tool, d.points); return; }
     if (d.mode === 'create-line') {
       if (Math.hypot(event.offsetX - d.startScreenX, event.offsetY - d.startScreenY) < 4) return;
       const node = this.hit(d.current.x, d.current.y), from = this.sourceId ?? '', to = node?.id ?? '';
@@ -813,56 +798,8 @@ export class Editor {
     return { id: committed ? uid() : '__create_preview__', kind: drag.tool, label: '', x, y, width, height,
       ...(shape ? { border: 'single' as const, textAlign: 'center' as const, verticalAlign: 'middle' as const, padding: 1, wrap: true, shadow: false } : { textAlign: 'left' as const, verticalAlign: 'top' as const, padding: 0, wrap: moved }) };
   }
-  private gridLine(from: GridPoint, to: GridPoint) {
-    const points: GridPoint[] = [], dx = Math.abs(to.x - from.x), dy = Math.abs(to.y - from.y);
-    const sx = from.x < to.x ? 1 : -1, sy = from.y < to.y ? 1 : -1; let error = dx - dy, x = from.x, y = from.y;
-    while (true) { points.push({ x, y }); if (x === to.x && y === to.y) break; const twice = error * 2; if (twice > -dy) { error -= dy; x += sx; } if (twice < dx) { error += dx; y += sy; } }
-    return points;
-  }
-  private commitDrawing(tool: 'pencil' | 'eraser', input: GridPoint[]) {
-    const unique = new Map(input.map(point => [`${point.x},${point.y}`, point])); if (!unique.size) return;
-    this.transact(doc => {
-      if (tool === 'eraser') {
-        for (const node of doc.nodes.filter(node => node.kind === 'text' && !node.locked && !node.hidden && node.padding === 0 && node.textAlign === 'left' && node.verticalAlign === 'top' && node.wrap === false)) {
-          const sourceRows = node.label.split('\n');
-          const rows = Array.from({ length: node.height }, (_, row) => { const characters = Array.from(sourceRows[row] ?? ''); return characters.concat(Array(Math.max(0, node.width - characters.length)).fill(' ')); });
-          let changed = false;
-          for (const point of unique.values()) if (point.x >= node.x && point.x < node.x + node.width && point.y >= node.y && point.y < node.y + node.height) { rows[point.y - node.y]![point.x - node.x] = ' '; changed = true; }
-          if (changed) node.label = rows.map(row => row.join('').replace(/ +$/u, '')).join('\n').replace(/\n+$/u, '');
-        }
-        doc.nodes = doc.nodes.filter(node => node.kind !== 'text' || node.label.length > 0);
-        return;
-      }
-      doc.nodes.push(...this.drawingNodes([...unique.values()]));
-    });
-  }
-  /** Compress painted cells into vertical stacks of equal horizontal runs.
-   * This avoids both one node per cell and transparent-looking space glyphs
-   * overwriting shapes that happen to sit beneath a sparse stroke. */
-  private drawingNodes(points: GridPoint[], requestedGroupId?: string): DiagramNode[] {
-    const byRow = new Map<number, number[]>();
-    for (const point of points) byRow.set(point.y, [...(byRow.get(point.y) ?? []), point.x]);
-    const runs: Array<{ x: number; y: number; width: number; height: number }> = [];
-    for (const [y, values] of [...byRow].sort((a, b) => a[0] - b[0])) {
-      const xs = [...new Set(values)].sort((a, b) => a - b); let start = xs[0], previous = xs[0];
-      for (const x of [...xs.slice(1), Number.POSITIVE_INFINITY]) {
-        if (x === previous! + 1) { previous = x; continue; }
-        const width = previous! - start! + 1;
-        let prior: (typeof runs)[number] | undefined;
-        for (let index = runs.length - 1; index >= 0; index--) { const run = runs[index]!; if (run.x === start && run.width === width && run.y + run.height === y) { prior = run; break; } }
-        if (prior) prior.height++; else runs.push({ x: start!, y, width, height: 1 });
-        start = x; previous = x;
-      }
-    }
-    const groupId = requestedGroupId ?? uid();
-    return runs.map(run => ({ id: uid(), groupId, kind: 'text', label: Array.from({ length: run.height }, () => this.drawingCharacter.repeat(run.width)).join('\n'), ...run, textAlign: 'left', verticalAlign: 'top', padding: 0, wrap: false }));
-  }
-  private pickCharacter(point: GridPoint) {
-    const cell = this.scene?.displayCells.find(candidate => candidate.x === point.x && candidate.y === point.y);
-    if (cell?.ch) this.setDrawingCharacter(cell.ch);
-  }
   private fillArea(point: GridPoint) {
-    // Fill belongs to the box, independently of labels and painted text above it.
+    // Fill belongs to the box, independently of labels and text above it.
     const node = this.spatialIndex.at(point.x, point.y).find(candidate => !candidate.hidden && candidate.kind !== 'text');
     if (!node || node.locked) {
       this.status = node?.locked ? 'Unlock this box before changing its fill' : 'Click a box to set its background fill';
@@ -957,7 +894,7 @@ export class Editor {
       event.preventDefault(); const [dx, dy] = moves[event.key]; const ids = new Set(this.selectedIds), step = event.shiftKey ? 5 : 1;
       this.transact(doc => { for (const node of doc.nodes) if (ids.has(node.id) && !node.locked && !node.hidden) { node.x += dx * step; node.y += dy * step; } }); return;
     }
-    const shortcuts: Record<string, Tool> = { v: 'select', h: 'pan', r: 'rectangle', t: 'text', l: 'line', p: 'pencil', e: 'eraser', b: 'fill', i: 'picker' };
+    const shortcuts: Record<string, Tool> = { v: 'select', h: 'pan', r: 'rectangle', t: 'text', l: 'line', b: 'fill' };
     if (shortcuts[event.key.toLowerCase()]) this.setTool(shortcuts[event.key.toLowerCase()]);
     if (event.key === '1' || event.key.toLowerCase() === 'f') this.fit();
     if (event.key === '+' || event.key === '=') this.zoomBy(1.2);
