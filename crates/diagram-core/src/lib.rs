@@ -913,7 +913,7 @@ impl Engine {
         serde_json::to_string(&self.scene()).expect("serializable scene")
     }
     pub fn display_scene_json(&self) -> String {
-        let scene = self.scene();
+        let scene = compose_display_cached(&self.document, false, Some(&self.route_cache));
         serialize_display_scene(&scene)
     }
     pub fn preview_patch_json(&self, json: &str) -> Result<String, DiagramError> {
@@ -927,7 +927,7 @@ impl Engine {
         apply_document_patch(&mut document, patch)?;
         validate_document(&document)
             .map_err(|error| error.with_replaced_code(ErrorCode::InvalidPatch))?;
-        Ok(serialize_display_scene(&compose_cached(
+        Ok(serialize_display_scene(&compose_display_cached(
             &document,
             false,
             Some(&self.route_cache),
@@ -1622,6 +1622,23 @@ fn compose_cached(
     ascii: bool,
     cache: Option<&RefCell<HashMap<String, RouteCacheEntry>>>,
 ) -> Scene {
+    compose_cached_with_terminal_cells(doc, ascii, cache, true)
+}
+
+fn compose_display_cached(
+    doc: &Document,
+    ascii: bool,
+    cache: Option<&RefCell<HashMap<String, RouteCacheEntry>>>,
+) -> Scene {
+    compose_cached_with_terminal_cells(doc, ascii, cache, false)
+}
+
+fn compose_cached_with_terminal_cells(
+    doc: &Document,
+    ascii: bool,
+    cache: Option<&RefCell<HashMap<String, RouteCacheEntry>>>,
+    include_terminal_cells: bool,
+) -> Scene {
     let visible_nodes: Vec<Node> = doc
         .nodes
         .iter()
@@ -1711,16 +1728,6 @@ fn compose_cached(
             .borrow_mut()
             .retain(|edge_id, _| live_edges.contains(edge_id.as_str()));
     }
-    let mut map = BTreeMap::<(i32, i32), char>::new();
-    for r in &routes {
-        draw_route_styled(&mut map, &r.points, ascii, r.line_style);
-    }
-    for (edge, route) in visible_edges.iter().zip(&routes) {
-        draw_edge_label(&mut map, edge, route, &visible_nodes, ascii);
-    }
-    for node in &visible_nodes {
-        draw_node(&mut map, node, ascii);
-    }
     let mut display_map = BTreeMap::<(i32, i32), char>::new();
     for (edge, route) in visible_edges.iter().zip(&routes) {
         draw_edge_label(&mut display_map, edge, route, &visible_nodes, ascii);
@@ -1728,41 +1735,6 @@ fn compose_cached(
     for node in &visible_nodes {
         draw_node(&mut display_map, node, ascii);
     }
-    // Keep the node border intact and put the arrowhead on the final outside cell.
-    for r in &routes {
-        if r.points.len() >= 2 && r.end_arrow != ArrowStyle::None {
-            let a = r.points[r.points.len() - 2];
-            let b = r.points[r.points.len() - 1];
-            let arrow_cell = Point {
-                x: b.x - (b.x - a.x).signum(),
-                y: b.y - (b.y - a.y).signum(),
-            };
-            map.insert(
-                (arrow_cell.y, arrow_cell.x),
-                marker(a, b, r.end_arrow, ascii),
-            );
-        }
-        if r.points.len() >= 2 && r.start_arrow != ArrowStyle::None {
-            let a = r.points[1];
-            let b = r.points[0];
-            let marker_cell = Point {
-                x: b.x - (b.x - a.x).signum(),
-                y: b.y - (b.y - a.y).signum(),
-            };
-            map.insert(
-                (marker_cell.y, marker_cell.x),
-                marker(a, b, r.start_arrow, ascii),
-            );
-        }
-    }
-    let cells = map
-        .iter()
-        .map(|(&(y, x), &ch)| Cell {
-            x,
-            y,
-            ch: ch.to_string(),
-        })
-        .collect::<Vec<_>>();
     let display_cells = display_map
         .iter()
         .map(|(&(y, x), &ch)| Cell {
@@ -1771,12 +1743,128 @@ fn compose_cached(
             ch: ch.to_string(),
         })
         .collect::<Vec<_>>();
-    let bounds = bounds_for(&cells);
+    let cells = if include_terminal_cells {
+        let mut map = BTreeMap::<(i32, i32), char>::new();
+        for r in &routes {
+            draw_route_styled(&mut map, &r.points, ascii, r.line_style);
+        }
+        for (edge, route) in visible_edges.iter().zip(&routes) {
+            draw_edge_label(&mut map, edge, route, &visible_nodes, ascii);
+        }
+        for node in &visible_nodes {
+            draw_node(&mut map, node, ascii);
+        }
+        // Keep the node border intact and put the arrowhead on the final outside cell.
+        for r in &routes {
+            if r.points.len() >= 2 && r.end_arrow != ArrowStyle::None {
+                let a = r.points[r.points.len() - 2];
+                let b = r.points[r.points.len() - 1];
+                let arrow_cell = Point {
+                    x: b.x - (b.x - a.x).signum(),
+                    y: b.y - (b.y - a.y).signum(),
+                };
+                map.insert(
+                    (arrow_cell.y, arrow_cell.x),
+                    marker(a, b, r.end_arrow, ascii),
+                );
+            }
+            if r.points.len() >= 2 && r.start_arrow != ArrowStyle::None {
+                let a = r.points[1];
+                let b = r.points[0];
+                let marker_cell = Point {
+                    x: b.x - (b.x - a.x).signum(),
+                    y: b.y - (b.y - a.y).signum(),
+                };
+                map.insert(
+                    (marker_cell.y, marker_cell.x),
+                    marker(a, b, r.start_arrow, ascii),
+                );
+            }
+        }
+        map.iter()
+            .map(|(&(y, x), &ch)| Cell {
+                x,
+                y,
+                ch: ch.to_string(),
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let bounds = if include_terminal_cells {
+        bounds_for(&cells)
+    } else {
+        display_bounds_for(&display_cells, &routes)
+    };
     Scene {
         cells,
         display_cells,
         bounds,
         routes,
+    }
+}
+
+fn display_bounds_for(display_cells: &[Cell], routes: &[Route]) -> Bounds {
+    // display_cells already contain the final node/label layer. A bordered node may
+    // clear earlier route cells from its interior, but every cleared position is
+    // strictly inside the border written by that same node, so it cannot define a
+    // bound beyond the retained border. Bounds therefore equal the union of this
+    // final layer, the route cells selected below, and terminal markers.
+    let mut extents: Option<(i32, i32, i32, i32)> = None;
+    let mut include = |x: i32, y: i32| {
+        extents = Some(match extents {
+            Some((min_x, min_y, max_x, max_y)) => {
+                (min_x.min(x), min_y.min(y), max_x.max(x), max_y.max(y))
+            }
+            None => (x, y, x, y),
+        });
+    };
+    for cell in display_cells {
+        include(cell.x, cell.y);
+    }
+    for route in routes {
+        let mut traversal_index = 0usize;
+        for (pair_index, pair) in route.points.windows(2).enumerate() {
+            let mut segment = segment_points(pair[0], pair[1]);
+            if segment.first() != Some(&pair[0]) {
+                segment.reverse();
+            }
+            for (index, point) in segment.into_iter().enumerate() {
+                let new_traversal_cell = pair_index == 0 || index > 0;
+                if route.line_style != LineStyle::Dashed
+                    || (new_traversal_cell && traversal_index.is_multiple_of(2))
+                {
+                    include(point.x, point.y);
+                }
+                if new_traversal_cell {
+                    traversal_index += 1;
+                }
+            }
+        }
+        if route.points.len() >= 2 && route.end_arrow != ArrowStyle::None {
+            let a = route.points[route.points.len() - 2];
+            let b = route.points[route.points.len() - 1];
+            include(b.x - (b.x - a.x).signum(), b.y - (b.y - a.y).signum());
+        }
+        if route.points.len() >= 2 && route.start_arrow != ArrowStyle::None {
+            let a = route.points[1];
+            let b = route.points[0];
+            include(b.x - (b.x - a.x).signum(), b.y - (b.y - a.y).signum());
+        }
+    }
+    match extents {
+        Some((min_x, min_y, max_x, max_y)) => Bounds {
+            x: min_x,
+            y: min_y,
+            width: max_x - min_x + 1,
+            height: max_y - min_y + 1,
+        },
+        None => Bounds {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+        },
     }
 }
 
@@ -2460,10 +2548,150 @@ fn escape_xml(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::Path;
+
     fn json(label: &str) -> String {
         format!(
             r#"{{"version":1,"title":"t","nodes":[{{"id":"a","kind":"service","label":"{label}","x":0,"y":0,"width":8,"height":3}},{{"id":"b","kind":"database","label":"db","x":12,"y":0,"width":9,"height":3}}],"edges":[{{"id":"e","from":"a","to":"b","label":""}}]}}"#
         )
+    }
+
+    fn assert_display_composition_matches_full(document_json: &str, context: &str) {
+        let engine = Engine::new(document_json).unwrap();
+        let expected = serialize_display_scene(&compose_cached(engine.document(), false, None));
+        let actual = engine.display_scene_json();
+        assert_eq!(actual, expected, "{context}");
+        assert_eq!(
+            engine.display_scene_json(),
+            actual,
+            "cached repeat: {context}"
+        );
+    }
+
+    #[test]
+    fn display_only_composition_matches_full_scene_for_all_benchmark_fixtures() {
+        let fixture_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/benchmarks");
+        for name in [
+            "small.mso",
+            "medium.mso",
+            "large.mso",
+            "dense.mso",
+            "boundaries.mso",
+            "long-labels.mso",
+            "offscreen.mso",
+        ] {
+            let json = fs::read_to_string(fixture_dir.join(name)).unwrap();
+            assert_display_composition_matches_full(&json, name);
+        }
+    }
+
+    #[test]
+    fn display_only_composition_matches_full_scene_for_sparse_edge_cases() {
+        let cases = [
+            ("empty", r#"{"version":2,"title":"","nodes":[],"edges":[]}"#),
+            (
+                "all hidden with incident edge",
+                r#"{"version":2,"title":"","nodes":[{"id":"a","kind":"service","label":"a","x":0,"y":0,"width":5,"height":3,"hidden":true},{"id":"b","kind":"service","label":"b","x":20,"y":0,"width":5,"height":3,"hidden":true}],"edges":[{"id":"e","from":"a","to":"b","label":"hidden"}]}"#,
+            ),
+            (
+                "transparent empty text",
+                r#"{"version":2,"title":"","nodes":[{"id":"text","kind":"text","label":"","x":-20,"y":30,"width":10,"height":4,"border":"none"}],"edges":[]}"#,
+            ),
+            (
+                "shadowed node",
+                r#"{"version":2,"title":"","nodes":[{"id":"box","kind":"rectangle","label":"box","x":-4,"y":-3,"width":7,"height":4,"shadow":true}],"edges":[]}"#,
+            ),
+            (
+                "free dashed edge without markers",
+                r#"{"version":2,"title":"","nodes":[],"edges":[{"id":"e","from":"","to":"","fromPoint":{"x":8,"y":2},"toPoint":{"x":-1,"y":2},"label":"","startArrow":"none","endArrow":"none","lineStyle":"dashed","routing":"staircase"}]}"#,
+            ),
+            (
+                "free dashed edge with label and markers",
+                r#"{"version":2,"title":"","nodes":[],"edges":[{"id":"e","from":"","to":"","fromPoint":{"x":0,"y":0},"toPoint":{"x":8,"y":5},"label":"free edge","startArrow":"circle","endArrow":"diamond","lineStyle":"dashed","routing":"staircase"}]}"#,
+            ),
+            (
+                "one free endpoint",
+                r#"{"version":2,"title":"","nodes":[{"id":"box","kind":"service","label":"box","x":10,"y":10,"width":6,"height":3}],"edges":[{"id":"e","from":"","to":"box","fromPoint":{"x":-5,"y":20},"label":"one free","startArrow":"none","endArrow":"arrow","lineStyle":"solid","routing":"orthogonal"}]}"#,
+            ),
+            (
+                "coincident free endpoints",
+                r#"{"version":2,"title":"","nodes":[],"edges":[{"id":"e","from":"","to":"","fromPoint":{"x":3,"y":3},"toPoint":{"x":3,"y":3},"label":"","startArrow":"none","endArrow":"none","lineStyle":"dashed","routing":"staircase"}]}"#,
+            ),
+        ];
+        for (name, document) in cases {
+            assert_display_composition_matches_full(document, name);
+        }
+    }
+
+    #[test]
+    fn display_bounds_follow_dashed_traversal_parity_and_skip_one_point_routes() {
+        let route = |id: &str, points: Vec<Point>| Route {
+            id: id.into(),
+            points,
+            start_arrow: ArrowStyle::None,
+            end_arrow: ArrowStyle::None,
+            line_style: LineStyle::Dashed,
+            routing: RoutingStyle::Staircase,
+        };
+        assert_eq!(
+            display_bounds_for(
+                &[],
+                &[route(
+                    "forward",
+                    vec![Point { x: 0, y: 0 }, Point { x: 3, y: 0 }],
+                )],
+            ),
+            Bounds {
+                x: 0,
+                y: 0,
+                width: 3,
+                height: 1,
+            }
+        );
+        assert_eq!(
+            display_bounds_for(
+                &[],
+                &[route(
+                    "reverse",
+                    vec![Point { x: 3, y: 1 }, Point { x: 0, y: 1 }],
+                )],
+            ),
+            Bounds {
+                x: 1,
+                y: 1,
+                width: 3,
+                height: 1,
+            }
+        );
+        assert_eq!(
+            display_bounds_for(
+                &[],
+                &[route(
+                    "bend",
+                    vec![
+                        Point { x: 0, y: 0 },
+                        Point { x: 2, y: 0 },
+                        Point { x: 2, y: 3 },
+                    ],
+                )],
+            ),
+            Bounds {
+                x: 0,
+                y: 0,
+                width: 3,
+                height: 3,
+            }
+        );
+        assert_eq!(
+            display_bounds_for(&[], &[route("point", vec![Point { x: 7, y: -2 }])]),
+            Bounds {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+            }
+        );
     }
     #[test]
     fn validates_references_and_duplicates() {

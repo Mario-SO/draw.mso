@@ -5,6 +5,7 @@ import { diffDocument } from './document-patch';
 import { LocalDocuments, type DocumentSummary } from './local-documents';
 import { benchmarkEnabled, recordPerformance, type BenchmarkApi } from './performance';
 import { svgToPng } from './png-export';
+import { createSnapTargetCache, refreshSnapTargetCache, snapMovement, type SnapTargetCache } from './snap-targets';
 import type { EngineOperation, EnginePayload, EngineResult, EngineWorkerResponse } from './worker-protocol';
 export type { DiagramNode, DiagramEdge } from '@draw/renderer';
 export type { DocumentSummary } from './local-documents';
@@ -38,7 +39,7 @@ type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 type Drag =
   | { mode: 'pan'; startX: number; startY: number; initialX: number; initialY: number }
   | { mode: 'marquee'; startX: number; startY: number; currentX: number; currentY: number; additive: boolean; initialSelection: Set<string> }
-  | { mode: 'move'; startX: number; startY: number; nodes: DiagramNode[]; origins: MoveOrigin[]; dx: number; dy: number }
+  | { mode: 'move'; startX: number; startY: number; nodes: DiagramNode[]; origins: MoveOrigin[]; snapTargetCache: SnapTargetCache; dx: number; dy: number }
   | { mode: 'resize'; startX: number; startY: number; node: DiagramNode; handle: ResizeHandle; dx: number; dy: number }
   | { mode: 'create'; tool: 'rectangle' | 'text'; startX: number; startY: number; currentX: number; currentY: number }
   | { mode: 'create-line'; startScreenX: number; startScreenY: number; from: GridPoint; current: GridPoint }
@@ -644,7 +645,8 @@ export class Editor {
     else {
       const nodes = this.document.nodes.filter(n => this.selectedIds.has(n.id) && !n.locked && !n.hidden).map(clone);
       if (!nodes.length) return;
-      this.drag = { mode: 'move', startX: p.x, startY: p.y, nodes, origins: nodes.map(n => ({ id: n.id, x: n.x, y: n.y })), dx: 0, dy: 0 };
+      const movingIds = new Set(nodes.map(n => n.id));
+      this.drag = { mode: 'move', startX: p.x, startY: p.y, nodes, origins: nodes.map(n => ({ id: n.id, x: n.x, y: n.y })), snapTargetCache: createSnapTargetCache(this.document, movingIds), dx: 0, dy: 0 };
     }
   };
   private pointerMove = (event: PointerEvent) => {
@@ -711,22 +713,12 @@ export class Editor {
     this.previewRevision++; this.schedulePreview();
   };
   private snapMove(d: Extract<Drag, { mode: 'move' }>, constrainedAxis?: 'x' | 'y') {
-    const moving = new Set(d.nodes.map(n => n.id));
-    const others = this.document.nodes.filter(n => !moving.has(n.id));
-    const anchors = (node: DiagramNode, axis: 'x' | 'y', delta = 0) => axis === 'x'
-      ? [node.x + delta, node.x + delta + (node.width - 1) / 2, node.x + delta + node.width - 1]
-      : [node.y + delta, node.y + delta + (node.height - 1) / 2, node.y + delta + node.height - 1];
-    const match = (axis: 'x' | 'y') => {
-      const targets = new Map<number, { value: number; node: DiagramNode }>();
-      for (const node of others) for (const value of anchors(node, axis)) targets.set(value * 2, { value, node });
-      for (const offset of [0, -2, 2]) for (const node of d.nodes) for (const value of anchors(node, axis, axis === 'x' ? d.dx : d.dy)) {
-        { const target = targets.get(value * 2 + offset); if (target) return { delta: offset / 2, ...target }; }
-      }
-    };
-    const sx = constrainedAxis === 'y' ? undefined : match('x'), sy = constrainedAxis === 'x' ? undefined : match('y'); if (sx) d.dx += sx.delta; if (sy) d.dy += sy.delta;
+    const targets = refreshSnapTargetCache(d.snapTargetCache, this.document);
+    const snapped = snapMovement(d.nodes, targets, d.dx, d.dy, constrainedAxis);
+    d.dx = snapped.dx; d.dy = snapped.dy;
     const movedLeft = Math.min(...d.nodes.map(n => n.x + d.dx)), movedRight = Math.max(...d.nodes.map(n => n.x + d.dx + n.width));
     const movedTop = Math.min(...d.nodes.map(n => n.y + d.dy)), movedBottom = Math.max(...d.nodes.map(n => n.y + d.dy + n.height));
-    this.renderer.setGuides([...(sx ? [{ axis: 'x' as const, value: sx.value, from: Math.min(movedTop, sx.node.y), to: Math.max(movedBottom, sx.node.y + sx.node.height) }] : []), ...(sy ? [{ axis: 'y' as const, value: sy.value, from: Math.min(movedLeft, sy.node.x), to: Math.max(movedRight, sy.node.x + sy.node.width) }] : [])]);
+    this.renderer.setGuides([...(snapped.x ? [{ axis: 'x' as const, value: snapped.x.value, from: Math.min(movedTop, snapped.x.node.y), to: Math.max(movedBottom, snapped.x.node.y + snapped.x.node.height) }] : []), ...(snapped.y ? [{ axis: 'y' as const, value: snapped.y.value, from: Math.min(movedLeft, snapped.y.node.x), to: Math.max(movedRight, snapped.y.node.x + snapped.y.node.width) }] : [])]);
   }
   // Coalesce temporary routing requests to at most 20 Hz with one in flight.
   // Accepted document/history never change until the pointer is released.

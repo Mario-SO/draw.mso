@@ -288,7 +288,7 @@ export class CanvasRenderer {
     ctx.lineJoin = "round";
     // The displayed scene may already contain an earlier worker preview. Hide
     // those scene positions, not the original positions from pointer-down.
-    const oldNodes = this.document?.nodes.filter(node => this.previewIds.has(node.id)) ?? [];
+    const oldNodes = this.previewIds.size ? (this.document?.nodes.filter(node => this.previewIds.has(node.id)) ?? []) : [];
     let activeStroke = '';
     const flushLines = () => {
       if (!activeStroke) return;

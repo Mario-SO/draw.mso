@@ -3,10 +3,21 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { cpus, platform, release, totalmem } from 'node:os';
 import { execFileSync } from 'node:child_process';
-import type { BenchmarkApi, PerformanceSample } from '../../../packages/editor/src/performance';
+import { createHash } from 'node:crypto';
 
+type PerformanceSample = { name: string; value: number; unit: 'ms' | 'bytes' | 'count'; detail?: Record<string, string | number | boolean> };
+type BenchmarkApi = { firstNodeCenter(): { x: number; y: number } | null; setCamera(camera: { x: number; y: number; zoom: number }): void };
 type BenchWindow = Window & { __DRAW_BENCHMARK_ENABLED__?: boolean; __DRAW_BENCHMARK_API__?: BenchmarkApi; __DRAW_BENCHMARK_SAMPLES__?: PerformanceSample[]; __DRAW_STOP_FRAME_PROBE__?: () => void };
+type FixtureNode = { id: string; x: number; y: number; groupId?: string } & Record<string, unknown>;
+type FixtureDocument = { nodes: FixtureNode[]; edges: unknown[] } & Record<string, unknown>;
+type Scenario = {
+  kind: 'sustained' | 'culling'; name: string; fixture: string; path: string;
+  offscreen: number; nodes: number; edges: number; sha256: string; input: string;
+};
 const root = resolve(import.meta.dirname, '../../..');
+const sha256 = (content: string) => createHash('sha256').update(content).digest('hex');
+const fixtureMetadata = ({ kind, name, fixture, path, offscreen, nodes, edges, sha256: contentSha256 }: Scenario) =>
+  ({ kind, name, fixture, path, offscreen, nodes, edges, sha256: contentSha256 });
 function setting(name: string, fallback: number, minimum: number) {
   const value = Number(process.env[name] ?? fallback);
   if (!Number.isInteger(value) || value < minimum) throw new Error(`${name} must be an integer >= ${minimum}`);
@@ -50,12 +61,27 @@ async function waitForCommand(page: Page, command: string, before: number) {
 test('sustained editing and fixed-camera culling', async ({ browser }) => {
   test.setTimeout(900_000);
   const rawRuns: PerformanceSample[][] = [];
-  const fixtures = ['medium', 'large'];
-  const base = JSON.parse(await readFile(resolve(root, 'fixtures/benchmarks/small.mso'), 'utf8')) as {
-    version: number; title: string; nodes: Array<{ id: string; x: number; y: number; groupId?: string }>; edges: unknown[];
-  };
-  const scenarios = [...fixtures.map(fixture => ({ name: `sustained-${fixture}`, fixture, offscreen: -1 })),
-    ...[0, 300, 1200].map(offscreen => ({ name: `culling-${offscreen}`, fixture: 'small', offscreen }))];
+  const fixtures = ['medium', 'large'] as const;
+  const fileScenarios = await Promise.all(fixtures.map(async fixture => {
+    const path = `fixtures/benchmarks/${fixture}.mso`, input = await readFile(resolve(root, path), 'utf8');
+    const document = JSON.parse(input) as FixtureDocument;
+    return { kind: 'sustained' as const, name: `sustained-${fixture}`, fixture, path, offscreen: 0,
+      nodes: document.nodes.length, edges: document.edges.length, sha256: sha256(input), input };
+  }));
+  const basePath = 'fixtures/benchmarks/small.mso';
+  const base = JSON.parse(await readFile(resolve(root, basePath), 'utf8')) as FixtureDocument;
+  const cullingScenarios = [0, 300, 1200].map(offscreen => {
+    // Preserve the same visible nodes AND routes; disconnected additions stay
+    // far outside the viewport for every camera position in the pan sequence.
+    const nodes = [...base.nodes, ...Array.from({ length: offscreen }, (_, index) => ({
+      ...base.nodes[index % base.nodes.length]!, id: `offscreen-${index}`, groupId: undefined,
+      x: 500 + (index % 40) * 18, y: 500 + Math.floor(index / 40) * 9,
+    }))];
+    const input = JSON.stringify({ ...base, nodes });
+    return { kind: 'culling' as const, name: `culling-${offscreen}`, fixture: 'small', path: basePath, offscreen,
+      nodes: nodes.length, edges: base.edges.length, sha256: sha256(input), input };
+  });
+  const scenarios: Scenario[] = [...fileScenarios, ...cullingScenarios];
   for (const scenario of scenarios) {
     for (let run = 0; run < warmups + repetitions; run++) {
       const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
@@ -64,27 +90,13 @@ test('sustained editing and fixed-camera culling', async ({ browser }) => {
         await page.addInitScript(() => { (window as BenchWindow).__DRAW_BENCHMARK_ENABLED__ = true; });
         await page.goto('/');
         await page.getByText('Ready · local workspace', { exact: false }).waitFor();
-        let nodeCount: number;
-        if (scenario.offscreen < 0) {
-          const path = resolve(root, `fixtures/benchmarks/${scenario.fixture}.mso`);
-          nodeCount = (JSON.parse(await readFile(path, 'utf8')) as { nodes: unknown[] }).nodes.length;
-          await page.locator('input[type=file]').setInputFiles(path);
-        } else {
-          // Preserve the same visible nodes AND routes; disconnected additions stay
-          // far outside the viewport for every camera position in the pan sequence.
-          const nodes = [...base.nodes, ...Array.from({ length: scenario.offscreen }, (_, index) => ({
-            ...base.nodes[index % base.nodes.length]!, id: `offscreen-${index}`, groupId: undefined,
-            x: 500 + (index % 40) * 18, y: 500 + Math.floor(index / 40) * 9,
-          }))];
-          nodeCount = nodes.length;
-          await page.locator('input[type=file]').setInputFiles({ name: `${scenario.name}.mso`, mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ ...base, nodes })) });
-        }
-        await page.getByText(`${nodeCount} nodes`, { exact: false }).waitFor();
+        await page.locator('input[type=file]').setInputFiles({ name: `${scenario.name}.mso`, mimeType: 'application/json', buffer: Buffer.from(scenario.input) });
+        await page.getByText(`${scenario.nodes} nodes`, { exact: false }).waitFor();
         const sidebar = page.getByRole('button', { name: 'Toggle documents', exact: true });
         if (await sidebar.getAttribute('aria-expanded') === 'true') await sidebar.click();
         await page.evaluate(() => (window as BenchWindow).__DRAW_BENCHMARK_API__!.setCamera({ x: 100, y: 100, zoom: 1 }));
         await resetSamples(page);
-        if (scenario.offscreen < 0) {
+        if (scenario.kind === 'sustained') {
           for (let gesture = 0; gesture < gestures; gesture++) {
             const target = await page.evaluate(() => (window as BenchWindow).__DRAW_BENCHMARK_API__!.firstNodeCenter());
             expect(target).not.toBeNull();
@@ -117,12 +129,26 @@ test('sustained editing and fixed-camera culling', async ({ browser }) => {
         await page.waitForTimeout(100);
         const samples = await page.evaluate(() => (window as BenchWindow).__DRAW_BENCHMARK_SAMPLES__ ?? []);
         expect(samples.some(sample => sample.name === 'renderer.paint')).toBe(true);
+        expect(samples.some(sample => sample.name === 'browser.activeFrameInterval')).toBe(true);
         expect(samples.some(sample => sample.name === 'editor.workerError')).toBe(false);
+        const roundTrips = samples.filter(sample => sample.name === 'editor.workerRoundTrip');
+        if (scenario.kind === 'sustained') {
+          expect(roundTrips.filter(sample => sample.detail?.command === 'patch')).toHaveLength(gestures);
+          expect(roundTrips.filter(sample => sample.detail?.command === 'previewPatch').length).toBeGreaterThanOrEqual(gestures);
+          for (const command of ['previewPatch', 'patch']) {
+            for (const name of ['worker.queueWait', 'worker.engineOutput', 'worker.operation', 'editor.engineOutputParse']) {
+              expect(samples.some(sample => sample.name === name && sample.detail?.command === command), `Missing ${name} for ${command}`).toBe(true);
+            }
+          }
+        } else {
+          expect(roundTrips).toHaveLength(0);
+        }
         for (const sample of samples) sample.detail = { ...sample.detail, scenario: scenario.name };
         if (run >= warmups) rawRuns.push(samples);
       } finally { await context.close(); }
     }
   }
+  expect(rawRuns).toHaveLength(scenarios.length * repetitions);
   const series = new Map<string, number[]>();
   for (const samples of rawRuns) {
     const groups = new Map<string, number[]>();
@@ -138,10 +164,12 @@ test('sustained editing and fixed-camera culling', async ({ browser }) => {
       }
     }
   }
+  for (const [key, values] of series) expect(values, `Incomplete metric series: ${key}`).toHaveLength(repetitions);
   const metrics = Object.fromEntries([...series].sort().map(([key, values]) => [key, { median: percentile(values, .5), p95: percentile(values, .95), samples: values.length }]));
   const git = (args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
   const report = {
-    schemaVersion: 1, suite: 'diagram-browser', createdAt: new Date().toISOString(), fixtures: scenarios,
+    schemaVersion: 1, suite: 'diagram-browser-stress', createdAt: new Date().toISOString(),
+    fixtures: scenarios.map(fixtureMetadata),
     methodology: { warmups, repetitions, gestures, pointerSteps: 24, pointerDelayMs: 16, cullingSteps: 120, aggregation: 'event median/p95/max/count per run, then median and p95 across runs' },
     metadata: { browser: { name: 'chromium', version: browser.version() }, hardware: { cpu: cpus()[0]?.model, logicalCpus: cpus().length, totalMemoryBytes: totalmem() }, os: { platform: platform(), release: release() }, git: { commit: git(['rev-parse', 'HEAD']), dirty: Boolean(git(['status', '--porcelain'])) }, runtime: { viewport: { width: 1440, height: 900 }, devicePixelRatio: 1, build: 'production', profileEnabled: false } },
     metrics, rawRuns,

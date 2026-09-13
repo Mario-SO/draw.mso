@@ -17,7 +17,7 @@ pnpm bench:compare -- docs/performance/baseline-native.json benchmark-results/na
 
 The comparison prints JSON with absolute values, percentage changes, and warnings for mismatched environments or missing metrics. A zero baseline produces a null percentage. It does not enforce a regression budget.
 
-Read the [initial measured findings](findings.md) and [optimization results](optimization.md) for the before/after evidence.
+Read the [initial measured findings](findings.md) and [optimization results](optimization.md) for the before/after evidence. The [sustained editing and culling experiment](sustained-editing.md) adds event-tail measurements and fixed-camera offscreen scaling.
 
 ## Interpreting results
 

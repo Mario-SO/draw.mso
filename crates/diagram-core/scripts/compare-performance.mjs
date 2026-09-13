@@ -6,8 +6,9 @@ const root = fileURLToPath(new URL('../../../', import.meta.url));
 
 export function compareReports(baseline, candidate) {
   const native = baseline.suite === 'diagram-core-native';
+  const browser = baseline.suite === 'diagram-browser' || baseline.suite === 'diagram-browser-stress';
   if (baseline.suite !== candidate.suite ||
-      (!native && (baseline.suite !== 'diagram-browser' || !baseline.metrics || !candidate.metrics)) ||
+      (!native && (!browser || !baseline.metrics || !candidate.metrics)) ||
       baseline.schemaVersion !== 1 || candidate.schemaVersion !== 1) {
     throw new Error('Expected two reports from the same suite with schemaVersion 1');
   }
@@ -46,7 +47,7 @@ export function compareReports(baseline, candidate) {
     }
   }
   if (!rows.length) throw new Error('Reports have no comparable metrics');
-  return { schemaVersion: 1, suite: native ? 'diagram-core-native' : 'browser', note: 'Positive change means a larger value, not necessarily a regression. No automatic pass/fail budget is applied.', warnings, comparisons: rows };
+  return { schemaVersion: 1, suite: baseline.suite, note: 'Positive change means a larger value, not necessarily a regression. No automatic pass/fail budget is applied.', warnings, comparisons: rows };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
