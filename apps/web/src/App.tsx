@@ -8,6 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Input } from "@draw/ui/components/ui/input"
 import { Textarea } from "@draw/ui/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@draw/ui/components/ui/tooltip"
+import { Analytics } from '@vercel/analytics/react'
 
 const initialSnapshot: EditorSnapshot = { documents: [], activeDocumentId: "", documentBusy: true, selectedCount: 0, canGroup: false, canUngroup: false, title: "Untitled diagram", tool: "select", selected: null, nodeCount: 0, edgeCount: 0, connections: [], zoom: 1, canUndo: false, canRedo: false, status: "Starting engine…", error: null }
 const tools: Array<{ tool: Tool; label: string; key: string; icon: ReactNode }> = [
@@ -56,5 +57,5 @@ export default function App() {
       <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Align selection" />}><AlignHorizontalJustifyStart /></DropdownMenuTrigger><DropdownMenuContent align="end">{([['left','Align left'],['center','Align horizontal centers'],['right','Align right'],['top','Align top'],['middle','Align vertical centers'],['bottom','Align bottom']] as const).map(([alignment,label]) => <DropdownMenuItem key={alignment} onClick={() => editor()?.alignSelection(alignment)}>{label}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
       <TipButton label="Duplicate selection" shortcut="⌘D" variant="ghost" size="icon-sm" onClick={() => editor()?.duplicateSelection()}><Copy /></TipButton><TipButton label="Delete selection" variant="ghost" size="icon-sm" onClick={() => editor()?.deleteSelection()}><Trash2 /></TipButton>
     </div></aside>}
-    {snapshot.selected && <Inspector key={snapshot.selected.id} node={snapshot.selected} connections={snapshot.connections} update={p => editor()?.updateSelected(p)} updateEdge={(id,l) => editor()?.updateEdge(id,l)} deleteEdge={id => editor()?.deleteEdge(id)} duplicate={() => editor()?.duplicateSelection()} remove={() => editor()?.deleteSelection()} />}</section></main></TooltipProvider>
+    {snapshot.selected && <Inspector key={snapshot.selected.id} node={snapshot.selected} connections={snapshot.connections} update={p => editor()?.updateSelected(p)} updateEdge={(id,l) => editor()?.updateEdge(id,l)} deleteEdge={id => editor()?.deleteEdge(id)} duplicate={() => editor()?.duplicateSelection()} remove={() => editor()?.deleteSelection()} />}</section></main><Analytics /></TooltipProvider>
 }
